@@ -1,0 +1,16 @@
+# TouchDesigner
+*.toe
+*.toebak
+Backup/
+*.dir/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+
+# 著作権のある参照素材（他者作品）は公開しない
+reference/original_reddit_frame.png
