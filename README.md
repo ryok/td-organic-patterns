@@ -103,6 +103,42 @@ TouchDesigner 標準ノードで再構築したもの。
 
 ![bpm sync](reference/bpmsync_preview.png)
 
+## 拡張: オンセット検出でシーン切替（Onset Scenes）
+
+連続追従（音量）・拍グリッド（BPM）に続く**イベント駆動**の第3軸。低域キックの
+オンセット（立ち上がり）を検出するたびにシーンが進み、表示側ブレンドモードと色相
+基準がジャンプする。曲の展開に合わせて絵の質感が切り替わる。
+
+1. [scripts/build_organic_patterns.py](scripts/build_organic_patterns.py)（+
+   [scripts/build_audio_reactive.py](scripts/build_audio_reactive.py) 推奨）を実行済みで
+2. 続けて [scripts/build_onset_scenes.py](scripts/build_onset_scenes.py) を実行
+3. `/project1/out1` を表示し、キック（低域）を入れる。テストは `__onsettest`
+   Constant CHOP に `low=0.5` を注入すると1フレームでシーンが進む
+
+| scene | 表示ブレンド | hue基準 | 質感 |
+|---|---|---|---|
+| 0 | add | 0° | 元（金属リムを加算） |
+| 1 | screen | 90° | 発光的に持ち上げ |
+| 2 | overlay | 180° | コントラスト強調・色相反対 |
+| 3 | lightercolor | 270° | 明色優先で硬質に |
+
+| scene 0 (add) | scene 1 (screen) | scene 2 (overlay) | scene 3 (lightercolor) |
+|---|---|---|---|
+| ![s0](reference/onset_scene0_add.png) | ![s1](reference/onset_scene1_screen.png) | ![s2](reference/onset_scene2_overlay.png) | ![s3](reference/onset_scene3_lightercolor.png) |
+
+### 設計のポイント（ヒステリシス状態機械 + ループを触らない）
+
+- **オンセット検出はシュミットトリガ**。単純な `level > threshold` は1キックで
+  閾値付近を何度も横切り多重発火する。上下2閾値（HI=0.18 発火 / LO=0.08 再武装）で
+  「一度発火したら LO まで戻るまで再発火しない」＝1キック1回だけ前進を保証する。
+- **状態は Execute DAT の `onFrameStart` で保持**。シーンindexは Constant CHOP、
+  再武装フラグ `armed` は DAT storage（`store/fetch`）に置く。CHOP に置くとクック
+  順序で競合しうるが、Python 側の永続変数なら決定的に読み書きできる。
+- **シーン切替は表示側 `disp_comp` を変え、ループ内 `comp1` は触らない**。
+  vividlight 等の非線形ブレンドをフィードバックループに置くと出力が 0/1 に
+  張り付き崩壊する（Emboss がループを凍らせるのと同じアトラクタ問題）。ループ内は
+  difference 固定、質感の切替は out 手前の表示側合成で行う。
+
 ## ネットワーク構成
 
 ```
