@@ -13,6 +13,11 @@ TouchDesigner 標準ノードで再構築したもの。
 
 ![reproduction](reference/reproduction_preview.png)
 
+オンセット検出でシーンが切り替わる動作デモ（低域キックのたびにブレンドと色相が
+ジャンプ。[フルクオリティ H.264 mp4](reference/demo_loop.mp4) も同梱）:
+
+![demo loop](reference/demo_loop.gif)
+
 ## 作者が明かした技法
 
 > "It's mostly experimenting through **feedback loops** and **blend mode
@@ -138,6 +143,42 @@ TouchDesigner 標準ノードで再構築したもの。
   vividlight 等の非線形ブレンドをフィードバックループに置くと出力が 0/1 に
   張り付き崩壊する（Emboss がループを凍らせるのと同じアトラクタ問題）。ループ内は
   difference 固定、質感の切替は out 手前の表示側合成で行う。
+
+## 作例の書き出し（Recorder）
+
+README 用の作例クリップを書き出すパイプライン。`hsv1` →
+`rec_res`（480×270 に縮小）→ `rec_out`（Movie File Out）。
+
+1. [scripts/build_recorder.py](scripts/build_recorder.py) を実行
+2. `op('/project1/rec_out').par.record = True` … 数秒 … `= False`
+3. `reference/demo_loop.mp4` が書き出される
+
+### macOS のコーデック事情（ハマりどころ）
+
+- **`h264nvgpu` は NVIDIA NVENC 専用**。Apple Silicon / Intel Mac では
+  `Nvidia H.264 codec is not supported on this OS` で書き出しゼロになる。macOS は
+  `mpeg4`（互換・軽量）か `prores`（高品質・大容量）を使う。
+- **`gif` コーデックは容量が爆発する**（実測: 480×270 の数十秒で 100MB 超）。GIF が
+  要るなら TD で mpeg4 を撮り、ffmpeg の2パスパレット最適化で軽量化するのが定石。
+
+### ffmpeg での後処理（TD 書き出し後）
+
+```bash
+# 軽量 H.264（保存用・フルクオリティ）: 9.7MB → 1.4MB
+ffmpeg -y -i demo_loop.mp4 -c:v libx264 -crf 26 -preset slow \
+       -movflags +faststart -an demo_loop_h264.mp4
+
+# README インライン用の最適化 GIF（2パスパレット）: 131MB相当 → 1.9MB
+ffmpeg -y -t 8 -i demo_loop.mp4 \
+  -vf "fps=10,scale=320:-1:flags=lanczos,palettegen=stats_mode=diff" \
+  -update 1 _palette.png
+ffmpeg -y -t 8 -i demo_loop.mp4 -i _palette.png -lavfi \
+  "fps=10,scale=320:-1:flags=lanczos[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=3" \
+  demo_loop.gif
+```
+
+GitHub の markdown は mp4 をインライン再生しない（リンク化される）ため、動きを
+見せるループは GIF が確実。フルクオリティは H.264 mp4 で別途同梱する。
 
 ## ネットワーク構成
 
