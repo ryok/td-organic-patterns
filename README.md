@@ -38,7 +38,12 @@ TouchDesigner 標準ノードで再構築したもの。
 
 ### B. .tox を読み込む
 
-[tox/organic_patterns.tox](tox/organic_patterns.tox) を任意の COMP にドラッグ＆ドロップ。
+任意の COMP にドラッグ＆ドロップ。用途に応じて2種類:
+
+- [tox/organic_patterns.tox](tox/organic_patterns.tox) — ベースのカラー版のみ（最小構成）
+- [tox/organic_patterns_full.tox](tox/organic_patterns_full.tox) — 音楽反応・BPM同期・
+  オンセット・録画まで含む完全版スナップショット
+
 （.tox はバイナリのため差分は追えない。パラメータ調整の履歴は A 側で管理する）
 
 ## 拡張: 音楽反応（Audio Reactive）
