@@ -42,7 +42,7 @@ TouchDesigner 標準ノードで再構築したもの。
 
 - [tox/organic_patterns.tox](tox/organic_patterns.tox) — ベースのカラー版のみ（最小構成）
 - [tox/organic_patterns_full.tox](tox/organic_patterns_full.tox) — 音楽反応・BPM同期・
-  オンセット・録画まで含む完全版スナップショット
+  オンセット・MIDI/OSC・録画まで含む完全版スナップショット
 
 （.tox はバイナリのため差分は追えない。パラメータ調整の履歴は A 側で管理する）
 
@@ -148,6 +148,46 @@ TouchDesigner 標準ノードで再構築したもの。
   vividlight 等の非線形ブレンドをフィードバックループに置くと出力が 0/1 に
   張り付き崩壊する（Emboss がループを凍らせるのと同じアトラクタ問題）。ループ内は
   difference 固定、質感の切替は out 手前の表示側合成で行う。
+
+## 拡張: MIDI/OSC 入力でライブ演奏（MIDI / OSC）
+
+自動反応（音量・BPM・オンセット）の**上に人間の手を重ねる**半自動＝演奏の軸。
+フィジカルの MIDI ノブや、スマホの TouchOSC のフェーダで、うねり・彩度・色相・
+フィードバック残留などを演者がその場で突き上げる。
+
+1. [scripts/build_organic_patterns.py](scripts/build_organic_patterns.py)（+
+   audio/bpm/onset は任意）を実行済みで
+2. 続けて [scripts/build_midi_osc.py](scripts/build_midi_osc.py) を実行
+3. **MIDI**: `midi_map`（MIDI In Map）をダブルクリック→ Device Mapper でノブを
+   `k1`..`k6` に割り当てる。**OSC**: TouchOSC を `osc_in` のポート（既定 9000）に
+   向け、フェーダ名を `k1`..`k6` に合わせる
+4. ハード無しでも `op('/project1/ctrl_manual').par.value0 = 0.5`（=k1）で演奏を模擬
+   できる（`value0`=k1 …… `value5`=k6）。0 に戻せば効果も消える
+
+| ノブ | 駆動するパラメータ | 演奏での使い所 |
+|---|---|---|
+| k1 | `warp_disp` 変位 | 盛り上がりで大理石の流れを突き上げる |
+| k2 | `hsv1` 彩度 | サビで虹色イリデッセンスを強調 |
+| k3 | `hsv1` 色相（度） | 手で色を回す（自動スイープに重畳） |
+| k4 | `level1` opacity | フィードバック残留＝尾の長さ（発散注意で小 gain） |
+| k5 | `seed_noise` 振幅 | うねりの元エネルギーを注入 |
+| k6 | シーン前進（ボタン） | 任意タイミングで質感を手動ジャンプ |
+
+### 設計のポイント（加算重畳 + fail-safe + 多重所有の解決）
+
+- **既存式を壊さない「後置加算」**。他拡張はパラメータ式を丸ごと上書きするが、
+  MIDI は `(現在の式) + op('ctrl')['kN']*gain` と後ろに足すだけ。audio/bpm の項が
+  乗っていても消さず、実行順にも依存しない。無入力時は各 k が 0 なので元の絵を壊さない。
+- **単一 `ctrl`（Null CHOP）を参照点に、手前で 3 ソースを加算**。`midi_map` +
+  `osc_in` + `ctrl_manual`（k1..k6=0 の常在 Constant）を Math CHOP（Combine=Add）で
+  同名チャンネル加算する。`ctrl_manual` が k1..k6 を必ず存在させるため、**ハードを
+  繋がなくても「チャンネル無し」エラーで壊れない**。同時にテスト注入点も兼ねる。
+- **多重所有パラメータの衝突を解決**。`hueoffset` は base/BPM/オンセット/MIDI の
+  4 系統が寄与したい単一パラメータ。オンセット/MIDI のシーン切替は毎回 `hueoffset`
+  式を再構築するため、素朴に後置加算すると**シーンが 1 度切り替わっただけで色相ノブ
+  (k3) が黙って死ぬ**。そこで `_apply_scene` が式を再構築する際に `ctrl` が在れば
+  k3 項を再付与する（beat1 の小節スイープ項を再付与するのと同じ流儀）。これで
+  どちらの経路でシーンが進んでも手動色相が生き残る。
 
 ## 作例の書き出し（Recorder）
 

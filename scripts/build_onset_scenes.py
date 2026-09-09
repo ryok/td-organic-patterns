@@ -91,6 +91,8 @@ def _apply_scene(idx):
     base_expr = f"{hue_base} + absTime.seconds*6"
     if p.op('beat1') is not None:            # BPM同期があれば小節スイープを維持
         base_expr += " + op('beat1')['rampbar']*40"
+    if p.op('ctrl') is not None:             # MIDI/OSC の手動色相(k3)も維持
+        base_expr += " + op('ctrl')['k3']*180"
     hsv.par.hueoffset.expr = base_expr
 
 def onFrameStart(frame):
