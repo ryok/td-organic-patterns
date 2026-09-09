@@ -36,6 +36,36 @@ TouchDesigner 標準ノードで再構築したもの。
 [tox/organic_patterns.tox](tox/organic_patterns.tox) を任意の COMP にドラッグ＆ドロップ。
 （.tox はバイナリのため差分は追えない。パラメータ調整の履歴は A 側で管理する）
 
+## 拡張: 音楽反応（Audio Reactive）
+
+ベースの油膜・大理石エンジンを音で駆動する派生。低域でドメインワープが波打ち、
+中域でうねりの元エネルギーが増え、高域で金属エッジと彩度がきらめく。
+
+1. まず [scripts/build_organic_patterns.py](scripts/build_organic_patterns.py) を実行
+2. 続けて [scripts/build_audio_reactive.py](scripts/build_audio_reactive.py) を実行
+3. `aud_in`（Audio Device In）のデバイスをマイク/ライン入力に設定
+4. `/project1/out1` を表示して音を鳴らす
+
+| 音の帯域 | 駆動するパラメータ | 見た目の変化 |
+|---|---|---|
+| 低域（キック/ベース） | `warp_disp` の変位量 | 大理石がビートで波打つ |
+| 中域（コード/ボーカル） | `seed_noise` の amp | うねりの元エネルギーが増える |
+| 高域（ハイハット/シンバル） | `edge1` strength ／ `hsv1` 彩度 | 金属リムと色がきらめく |
+| 全体音量（RMS） | `level1` opacity | 大音量ほど構造が長く残る |
+
+### 設計のポイント（base + gain）
+
+各パラメータは `base + op('aud_lag')['band']*gain` の式で駆動する。無音時は解析値が
+0 に収束して base 値そのまま＝元の静的パッチと同じ絵になる。マイク未接続でも壊れず、
+鳴らすと動く。オーディオを「置換」でなく「加算」にすることでライブでの堅牢性を確保。
+
+- **FFT のジッタは Lag CHOP で平滑化**（attack=0.02 / release=0.15）。生の Audio
+  Spectrum はフレーム毎に激しく揺れるため、そのまま繋ぐとパラメータが痙攣する。
+- **帯域分割は Trim CHOP のサンプル範囲で**。Audio Spectrum の 22050 サンプルを
+  低/中/高にインデックスで割る（厳密な Hz 変換より体感優先）。
+
+![audio reactive (beat)](reference/audioreactive_beat_preview.png)
+
 ## ネットワーク構成
 
 ```

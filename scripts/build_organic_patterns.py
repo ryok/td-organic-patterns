@@ -80,7 +80,10 @@ NODES = {
 }
 
 # 配線: node -> [(入力インデックス, 上流ノード名), ...]
+# fb1 は par.top でループを閉じるが、Feedback TOP は入力コネクタが未接続だと
+# "Not enough sources specified" エラーになるため null1 を入力にも配線する。
 WIRES = {
+    'fb1':          [(0, 'null1')],
     'comp1':        [(0, 'fb1'), (1, 'seed_noise')],
     'warp_disp':    [(0, 'comp1'), (1, 'warp_noise')],
     'convo_sharp1': [(0, 'warp_disp')],
