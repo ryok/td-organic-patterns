@@ -70,6 +70,39 @@ TouchDesigner 標準ノードで再構築したもの。
 - **帯域分割は Trim CHOP のサンプル範囲で**。Audio Spectrum の 22050 サンプルを
   低/中/高にインデックスで割る（厳密な Hz 変換より体感優先）。
 
+## 拡張: BPM同期（Beat Sync）
+
+音楽反応が「鳴っている音のエネルギーに連続追従」なのに対し、BPM同期は先に定義した
+**拍グリッドにスナップ**する。大理石が拍頭で脈動し、小節ごとに色相がスイープする。
+両者は加算合成で併存でき、BPM同期だけでもフルスタックでも動く。
+
+1. [scripts/build_organic_patterns.py](scripts/build_organic_patterns.py)（必要なら
+   [scripts/build_audio_reactive.py](scripts/build_audio_reactive.py) も）を実行済みで
+2. 続けて [scripts/build_bpm_sync.py](scripts/build_bpm_sync.py) を実行
+3. `/local/time` の tempo（既定 120BPM）を曲に合わせる。ライブでは Tap Tempo /
+   Ableton Link で上書き
+4. `/project1/out1` を表示。120BPM なら 0.5 秒ごとに脈動する
+
+| 拍要素 | 駆動するパラメータ | 見た目の変化 |
+|---|---|---|
+| 拍頭パルス（rampbeat） | `warp_disp` の変位量 | 拍でワープがスナップ |
+| 拍頭パルス（rampbeat） | `hsv1` valuemult | 拍で明度がポップ |
+| 小節ランプ（rampbar） | `hsv1` hueoffset | 小節ごとに色相スイープ |
+
+### 設計のポイント（状態を持たない拍エンベロープ）
+
+拍の減衰パルスは `(1 - op('beat1')['rampbeat'])**2` で式生成する。拍頭=1 →
+拍末=0、二乗でアタックを鋭くする。1フレームの pulse スパイクを Lag で平滑化する
+方式も試したが、スパイクは捉えづらく状態依存で不安定だった。**rampbeat 由来の
+閉じた式はテンポから確定的に決まり、どのフレームでも値が一意=再現・検証が容易**。
+
+- **Beat CHOP の bpm/pulse/rampbeat/rampbar は出力チャンネルの ON/OFF トグル**で
+  あってテンポ設定ではない。実テンポはローカル Time COMP (`/local/time`) の tempo。
+- **無音でも動く**（Beat CHOP は内部クロック駆動）。音量追従と違い、音がなくても
+  拍は刻まれる。
+
+![bpm sync](reference/bpmsync_preview.png)
+
 ## ネットワーク構成
 
 ```
