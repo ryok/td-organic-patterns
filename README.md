@@ -42,7 +42,7 @@ TouchDesigner 標準ノードで再構築したもの。
 
 - [tox/organic_patterns.tox](tox/organic_patterns.tox) — ベースのカラー版のみ（最小構成）
 - [tox/organic_patterns_full.tox](tox/organic_patterns_full.tox) — 音楽反応・BPM同期・
-  オンセット・MIDI/OSC・録画まで含む完全版スナップショット
+  オンセット・MIDI/OSC・Ableton Link・録画まで含む完全版スナップショット
 
 （.tox はバイナリのため差分は追えない。パラメータ調整の履歴は A 側で管理する）
 
@@ -188,6 +188,37 @@ TouchDesigner 標準ノードで再構築したもの。
   (k3) が黙って死ぬ**。そこで `_apply_scene` が式を再構築する際に `ctrl` が在れば
   k3 項を再付与する（beat1 の小節スイープ項を再付与するのと同じ流儀）。これで
   どちらの経路でシーンが進んでも手動色相が生き残る。
+
+## 拡張: Ableton Link で実 DAW とテンポ同期（Ableton Link）
+
+BPM同期（手打ちテンポ）を一歩進め、Ableton Live などの実 DAW と同一 LAN 上で
+テンポを共有する。DAW でテンポを変えると、大理石の脈動が追従して速さを変える。
+
+1. [scripts/build_organic_patterns.py](scripts/build_organic_patterns.py) +
+   [scripts/build_bpm_sync.py](scripts/build_bpm_sync.py) を実行済みで
+2. 続けて [scripts/build_ableton_link.py](scripts/build_ableton_link.py) を実行
+3. DAW（Ableton Live 等）で Link を ON にし、TD と同一 LAN に置く
+4. `ablink['numpeers']` が 1 以上・`['linked']=1` で接続成功。DAW のテンポ変更が
+   `/local/time.tempo` に伝わり、脈動が追従する
+5. DAW が無くてもエンジンは 120BPM で動く（fail-safe）
+
+### 設計のポイント（/local/time を 1 点駆動 + fail-safe）
+
+- **テンポの供給源を差し替えるだけ（ゼロ書き換え）**。beat1 の rampbeat/rampbar は
+  グローバル時間 `/local/time` から確定的に決まる。その `tempo` だけを Ableton Link
+  CHOP の出力へ差し替えれば、beat1・BPM脈動・オンセット・MIDI の**すべてが自動追従**
+  する。個々の式に `op('ablink')` を撒かないので多重所有の衝突も起きない。
+- **`tempo` パラメータは出力トグル**（Beat CHOP と同じ罠）。実テンポは出力チャンネル
+  `tempo` に出る。パラメータ側はテンポ設定ではなく ON/OFF スイッチ。
+- **ピア不在でも壊れない**。Ableton Link CHOP はピア 0 でも自前クロックで
+  `tempo=120` を出力する。さらに保険として「`tempo>1` のときだけ追従、さもなくば
+  120」の三項式にし、時計が 0 に落ちて停止する事故を防ぐ。
+- **位相ロックは要 DAW 検証の次層**。テンポ同期は「速さ」を合わせるが、DAW の
+  ダウンビートとの「位相」までは合わない（beat1 は TD のタイムライン 0 起点）。
+  厳密な拍頭合わせには `op('ablink')['rampbeat']` / `['rampbar']` を直接読む必要が
+  あるが、多点改修（BEAT_ENV・小節スイープ・`_apply_scene` の beat1 参照）と
+  多重所有の衝突を招き、かつ実 DAW ピアが無いと正しさを検証できない。ゆえに
+  本スクリプトはテンポ同期に絞り、位相ロックは DAW を繋いだ状態で入れる次層とする。
 
 ## 作例の書き出し（Recorder）
 
