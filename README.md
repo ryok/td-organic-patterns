@@ -59,12 +59,16 @@ TouchDesigner 標準ノードで再構築したもの。
 0 に収束して base 値そのまま＝元の静的パッチと同じ絵になる。マイク未接続でも壊れず、
 鳴らすと動く。オーディオを「置換」でなく「加算」にすることでライブでの堅牢性を確保。
 
+左が無音時（ベースと同一）、右がビート入力時（変位・彩度・エッジが増幅）:
+
+| 無音（base値のみ） | ビート入力時（base + band*gain） |
+|---|---|
+| ![idle](reference/audioreactive_idle_preview.png) | ![beat](reference/audioreactive_beat_preview.png) |
+
 - **FFT のジッタは Lag CHOP で平滑化**（attack=0.02 / release=0.15）。生の Audio
   Spectrum はフレーム毎に激しく揺れるため、そのまま繋ぐとパラメータが痙攣する。
 - **帯域分割は Trim CHOP のサンプル範囲で**。Audio Spectrum の 22050 サンプルを
   低/中/高にインデックスで割る（厳密な Hz 変換より体感優先）。
-
-![audio reactive (beat)](reference/audioreactive_beat_preview.png)
 
 ## ネットワーク構成
 
