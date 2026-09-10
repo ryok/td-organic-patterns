@@ -42,7 +42,7 @@ TouchDesigner 標準ノードで再構築したもの。
 
 - [tox/organic_patterns.tox](tox/organic_patterns.tox) — ベースのカラー版のみ（最小構成）
 - [tox/organic_patterns_full.tox](tox/organic_patterns_full.tox) — 音楽反応・BPM同期・
-  オンセット・MIDI/OSC・Ableton Link・録画まで含む完全版スナップショット
+  オンセット・MIDI/OSC・Ableton Link・小節頭アクセント・録画まで含む完全版スナップショット
 
 （.tox はバイナリのため差分は追えない。パラメータ調整の履歴は A 側で管理する）
 
@@ -232,6 +232,33 @@ BPM同期（手打ちテンポ）を一歩進め、Ableton Live などの実 DAW
   Switch の index 式 `1 if op('ablink') is not None else 0` の 1 点に集約する。
   `_apply_scene`（onset/midi）も `beatsync` 優先に更新済みで、シーン切替後も位相項と
   MIDI 手動色相 k3 項の両方が保持される（多重所有の踏み潰しが起きないことを実機で確認）。
+
+## 拡張: 小節頭アクセント（Accent）
+
+毎拍の連続脈動の"上"に、各小節の 1 拍目（ダウンビート）だけ一段強いパンチを
+足す。構造がひと突きし、明度・彩度が跳ねる。位相ロック（Ableton Link）済みなら
+このパンチは DAW のアクセント音に正確に一致する。
+
+1. [scripts/build_organic_patterns.py](scripts/build_organic_patterns.py) +
+   [scripts/build_bpm_sync.py](scripts/build_bpm_sync.py) を実行済みで
+   （位相ロックまで欲しければ [scripts/build_ableton_link.py](scripts/build_ableton_link.py) も）
+2. 続けて [scripts/build_accent.py](scripts/build_accent.py) を実行
+3. 小節頭で構造がひと突きし、明度・彩度が一段上がる
+
+### 設計のポイント（後置加算 + 小節頭包絡）
+
+- **アクセント包絡は `(1 - rampbar) ** POW`**。`rampbar` は小節頭で 0・小節末で 1 の
+  ランプなので、この式は**小節頭で最大→急減衰**する。`POW`（既定 6）を上げるほど
+  山が鋭くなり「拍の点」に近づく（POW=6 でおよそ 1 拍かけて減衰）。
+- **既存式を壊さない後置加算**。warp/hsv/opacity の式には audio/bpm/onset/MIDI/
+  位相ロックの項が既に乗っている。それらを消さず末尾に `+ env*gain` を追記する。
+  谷では `env≈0` なので元の絵を壊さない fail-safe。同一文字列は二重加算しない（冪等）。
+- **位相ソースはビルド時に確定**。`beatsync`（位相ロック層）があればそれ、無ければ
+  `beat1` を `rampbar` 供給源に選ぶ。式内に `op('beatsync') is not None` の三項を
+  撒くと `_apply_scene` の多重所有問題と同種の脆さを招くため、ビルド時に 1 つに決める。
+- **フィードバック opacity は極小 gain**。小節頭で構造の"尾"を伸ばせるが、大きくすると
+  0/1 に張り付いて発散する（Emboss/非線形ブレンドをループに置くのと同じ問題）。
+  よって opacity のアクセントだけ `gain=0.003` に抑える（無音時ピークでも 0.988 < 1.0）。
 
 ## 作例の書き出し（Recorder）
 
