@@ -193,14 +193,19 @@ TouchDesigner 標準ノードで再構築したもの。
 
 BPM同期（手打ちテンポ）を一歩進め、Ableton Live などの実 DAW と同一 LAN 上で
 テンポを共有する。DAW でテンポを変えると、大理石の脈動が追従して速さを変える。
+さらに**位相ロック**により、拍頭（ダウンビート）まで DAW に揃う（キックに脈動の
+ピークが一致する）。
 
 1. [scripts/build_organic_patterns.py](scripts/build_organic_patterns.py) +
    [scripts/build_bpm_sync.py](scripts/build_bpm_sync.py) を実行済みで
 2. 続けて [scripts/build_ableton_link.py](scripts/build_ableton_link.py) を実行
+   （オンセット/MIDI を併用する場合は、位相ロックを `_apply_scene` に行き渡らせるため
+   [scripts/build_onset_scenes.py](scripts/build_onset_scenes.py) /
+   [scripts/build_midi_osc.py](scripts/build_midi_osc.py) も再実行する）
 3. DAW（Ableton Live 等）で Link を ON にし、TD と同一 LAN に置く
 4. `ablink['numpeers']` が 1 以上・`['linked']=1` で接続成功。DAW のテンポ変更が
-   `/local/time.tempo` に伝わり、脈動が追従する
-5. DAW が無くてもエンジンは 120BPM で動く（fail-safe）
+   `/local/time.tempo` に伝わり脈動が追従し、拍頭も DAW のダウンビートに位相ロックする
+5. DAW が無くてもエンジンは 120BPM・beat1 位相で動く（fail-safe）
 
 ### 設計のポイント（/local/time を 1 点駆動 + fail-safe）
 
@@ -213,12 +218,20 @@ BPM同期（手打ちテンポ）を一歩進め、Ableton Live などの実 DAW
 - **ピア不在でも壊れない**。Ableton Link CHOP はピア 0 でも自前クロックで
   `tempo=120` を出力する。さらに保険として「`tempo>1` のときだけ追従、さもなくば
   120」の三項式にし、時計が 0 に落ちて停止する事故を防ぐ。
-- **位相ロックは要 DAW 検証の次層**。テンポ同期は「速さ」を合わせるが、DAW の
+- **位相ロック（拍頭合わせ）も実装済み**。テンポ同期は「速さ」を合わせるが、DAW の
   ダウンビートとの「位相」までは合わない（beat1 は TD のタイムライン 0 起点）。
-  厳密な拍頭合わせには `op('ablink')['rampbeat']` / `['rampbar']` を直接読む必要が
-  あるが、多点改修（BEAT_ENV・小節スイープ・`_apply_scene` の beat1 参照）と
-  多重所有の衝突を招き、かつ実 DAW ピアが無いと正しさを検証できない。ゆえに
-  本スクリプトはテンポ同期に絞り、位相ロックは DAW を繋いだ状態で入れる次層とする。
+  厳密な拍頭合わせには `op('ablink')['rampbeat']` / `['rampbar']`（Link ネットワークに
+  位相ロック済みのランプ）を読む必要がある。各式に「ablink があれば ablink、無ければ
+  beat1」の三項を撒くと、`hueoffset` のように複数系統（base/bpm/onset/midi）が寄与する
+  パラメータで**多重所有の衝突**（`_apply_scene` が式を再構築して他系統の項を踏み潰す）
+  を再燃させる。
+- **位相ソースは単一 Null `beatsync` に集約**（`ctrl` と同じ思想）。
+  `beatsync_free`(beat1) と `beatsync_link`(ablink) を `beatsync_sw`(Switch) で選び、
+  `beatsync`(Null) で束ねる。式側は `op('beat1')['rampbeat'|'rampbar']` を
+  `op('beatsync')[...]` に張り替えるだけ。フォールバック（DAW/ablink 不在→beat1）は
+  Switch の index 式 `1 if op('ablink') is not None else 0` の 1 点に集約する。
+  `_apply_scene`（onset/midi）も `beatsync` 優先に更新済みで、シーン切替後も位相項と
+  MIDI 手動色相 k3 項の両方が保持される（多重所有の踏み潰しが起きないことを実機で確認）。
 
 ## 作例の書き出し（Recorder）
 

@@ -89,7 +89,9 @@ def _apply_scene(idx):
     p.op('disp_comp').par.operand = blend    # 表示側を切替（ループは触らない）
     hsv = p.op('hsv1')
     base_expr = f"{hue_base} + absTime.seconds*6"
-    if p.op('beat1') is not None:            # BPM同期があれば小節スイープを維持
+    if p.op('beatsync') is not None:         # 位相ロック層があれば beatsync 位相を優先
+        base_expr += " + op('beatsync')['rampbar']*40"
+    elif p.op('beat1') is not None:          # 無ければ BPM同期の beat1 位相
         base_expr += " + op('beat1')['rampbar']*40"
     if p.op('ctrl') is not None:             # MIDI/OSC の手動色相(k3)も維持
         base_expr += " + op('ctrl')['k3']*180"
@@ -158,7 +160,9 @@ def build_onset():
     # 初期状態: scene 0（add / hue 0）
     p.op('disp_comp').par.operand = SCENES[0][0]
     he = f"{SCENES[0][1]} + absTime.seconds*6"
-    if p.op('beat1') is not None:
+    if p.op('beatsync') is not None:         # 位相ロック層があれば beatsync を優先
+        he += " + op('beatsync')['rampbar']*40"
+    elif p.op('beat1') is not None:
         he += " + op('beat1')['rampbar']*40"
     p.op('hsv1').par.hueoffset.expr = he
 
