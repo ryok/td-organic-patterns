@@ -82,7 +82,7 @@ HI = 0.5
 LO = 0.2
 
 def _btn():
-    c = op('/project1/ctrl')
+    c = me.parent().op('ctrl')       # 絶対パスにせずDATが置かれたCOMPを基点にする
     if c is None:
         return 0.0
     try:
@@ -91,7 +91,7 @@ def _btn():
         return 0.0
 
 def _apply_scene(idx):
-    p = op('/project1')
+    p = me.parent()                  # 相対参照: tox をどこに置いても壊れない
     st = p.op('scene_table')
     if st is None:
         return
@@ -109,7 +109,7 @@ def _apply_scene(idx):
     hsv.par.hueoffset.expr = base_expr
 
 def onFrameStart(frame):
-    p = op('/project1')
+    p = me.parent()                  # 相対参照: 入れ子/別配置でも scene_state を辿れる
     ss = p.op('scene_state')
     if ss is None:
         return

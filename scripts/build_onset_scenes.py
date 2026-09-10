@@ -70,7 +70,7 @@ HI = {HI}
 LO = {LO}
 
 def _kick_level():
-    p = op('/project1')
+    p = me.parent()                  # 絶対パスにせずDATが置かれたCOMPを基点にする
     t = p.op('__onsettest')          # テスト用オーバーライドがあれば優先
     if t is not None:
         return float(t['low'])
@@ -80,7 +80,7 @@ def _kick_level():
     return float(a['low'])
 
 def _apply_scene(idx):
-    p = op('/project1')
+    p = me.parent()                  # 相対参照: tox をどこに置いても壊れない
     st = p.op('scene_table')
     n = st.numRows - 1               # ヘッダ除く
     row = (idx % n) + 1
@@ -96,7 +96,7 @@ def _apply_scene(idx):
     hsv.par.hueoffset.expr = base_expr
 
 def onFrameStart(frame):
-    p = op('/project1')
+    p = me.parent()                  # 相対参照: 入れ子/別配置でも scene_state を辿れる
     ss = p.op('scene_state')
     lvl = _kick_level()
     armed = ss.fetch('armed', 1)
