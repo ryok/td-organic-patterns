@@ -58,8 +58,17 @@ PARENT = '/project1'
 
 # Link 由来テンポで /local/time を駆動する fail-safe 式。
 # ピア不在/異常(=tempo<=1)のときは 120 に落として時計停止を防ぐ。
-TEMPO_EXPR = ("op('ablink')['tempo'] if "
-              "(op('ablink') is not None and op('ablink')['tempo'] > 1) else 120.0")
+#
+# ★フルパス必須★: この式が走るのは /local/time であって /project1 ではない。
+# パラメータ式内の op('name') は「そのパラメータを持つ op の親」を基点に相対解決
+# されるため、/local/time から相対名 'ablink' を引くと /local 配下を探して None に
+# なる（→常に else の 120 に落ちる）。ablink は /project1 配下なので、供給源と
+# 消費点がネットワークをまたぐこの1点だけはフルパスで参照する。
+#   罠の顕在化: 両者 120 のときは「ablink=None→else=120」と「実 tempo=120」が
+#   偶然一致して正常に見える。DAW テンポを 120 以外にした瞬間に追従しないと露見。
+TEMPO_EXPR = ("op('/project1/ablink')['tempo'] if "
+              "(op('/project1/ablink') is not None and op('/project1/ablink')['tempo'] > 1) "
+              "else 120.0")
 
 # 生やす出力チャンネル（これらは ON/OFF トグル。テンポ設定ではない）。
 # tempo=共有テンポ, rampbeat/rampbar=位相ロック済みランプ(将来の位相ロック用),
