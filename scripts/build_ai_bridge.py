@@ -11,6 +11,13 @@ StreamDiffusion の t_index を変調**する（音が大きいほど AI の再�
   build_organic_patterns / build_audio_reactive を実行済み（out1, aud_lag が在る）。
   GPU 側で streamdiffusion-ws が起動し、Mac 側で SSH トンネル(8765)が通っていること。
   サーバーは --t-index 22 32（2要素）で起動している前提（TINDEX は要素数一致が必須）。
+  ★重要（2026-09-11 S5で判明）: サーバーは **--guidance-scale 5 --cfg-type full** で
+  起動すること。既定の guidance_scale=1.2 だとプロンプトが拡散に効かず出力が茶色い無地に
+  潰れる。CFGを上げて初めてプロンプトが絵を支配し、油膜が虹色オイルスリックに変換される。
+  推奨起動:
+    CUDA_VISIBLE_DEVICES=1 python -u sd_ws_server.py --size 512 --acceleration xformers \
+      --t-index 22 32 --guidance-scale 5 --cfg-type full \
+      --prompt "iridescent oil slick, psychedelic marbled rainbow, liquid metal swirls, ornate detailed, vibrant saturated"
 
 構成（hand-trail-ai の TD 側 3 点セットを移植し、送信ソースを out1 に差し替え）:
   websocket1(WebSocket DAT, client) ── callbacks → websocket1_callbacks1(Text DAT)
@@ -184,8 +191,10 @@ SRC = '/project1/out1'
 AUD = '/project1/aud_lag'
 EVERY = 3          # 送信を試みる間隔（フレーム）。ガードがあるので小さくてよい
 E_FULL = 0.03      # このエネルギーで最強変調（要チューニング。実測 aud_lag は 0.001〜0.02 帯）
-TA_BASE, TA_MIN = 22, 10   # t_index[0]: 無音=22(忠実) → 最強=10(AI再解釈が強い)
-TB_BASE, TB_MIN = 32, 20   # t_index[1]
+# t_index レンジ（2026-09-11 S5で調整）: 無音=忠実寄り(20,30) → 大音量=強め(12,22)。
+# guidance-scale 5 前提。10 以下まで下げると過剰変換になりやすいので 12 で止める。
+TA_BASE, TA_MIN = 20, 12   # t_index[0]: 無音=20(忠実寄り) → 大音量=12(AI再解釈が強い)
+TB_BASE, TB_MIN = 30, 22   # t_index[1]
 
 
 def _clamp(x, lo, hi):
