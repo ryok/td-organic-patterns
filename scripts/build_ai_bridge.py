@@ -225,10 +225,14 @@ def onFrameStart(frame):
     n = _clamp(e / E_FULL, 0.0, 1.0)
     ta = int(round(TA_BASE - (TA_BASE - TA_MIN) * n))
     tb = int(round(TB_BASE - (TB_BASE - TB_MIN) * n))
-    # 目標t_indexが2以上動いたら即TINDEX送信（音の抑揚をAIの激しさに直結させる）。
-    # 画像とTINDEXは同じin-flight枠を共有するが、整数が2動く時だけなので流量は破綻しない。
+    # 画像フレームを主に流し、TINDEXは数スロットに1回だけ相乗りさせる。
+    # ★2026-09-11の録画で判明: 画像とTINDEXは同じin-flight枠を1スロット1回で共有する。
+    #   毎回TINDEXを送ると（大音量でenergyが揺れ changed がほぼ毎回true）画像が枯れ、
+    #   ai_out が更新されず映像が静止する。slot%4 で TINDEX を1/4に間引き、画像3/4を確保。
+    #   「変調が乗らない」ときはこのゲートでなく E_FULL の校正（実音量に合わせる）で直す。
+    slot = frame // EVERY
     changed = abs(ta - cb.last_ta()) >= 2
-    if changed:
+    if changed and slot % 4 == 0:
         cb.send_tindex(ws, ta, tb)
     else:
         cb.send_frame(ws)
