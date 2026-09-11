@@ -190,7 +190,10 @@ CB = '/project1/websocket1_callbacks1'
 SRC = '/project1/out1'
 AUD = '/project1/aud_lag'
 EVERY = 3          # 送信を試みる間隔（フレーム）。ガードがあるので小さくてよい
-E_FULL = 0.03      # このエネルギーで最強変調（要チューニング。実測 aud_lag は 0.001〜0.02 帯）
+# E_FULL = このエネルギーで最強変調。★実音量に必ず合わせること（2026-09-11の教訓）。
+# aud_spec→analyze系はスケールが小さく、体感"大音量"でも aud_lag は 0.003〜0.03 程度。
+# 静かめのソースなら 0.006 前後まで下げないと t_index が動かない（録画前に実測して調整）。
+E_FULL = 0.02
 # t_index レンジ（2026-09-11 S5で調整）: 無音=忠実寄り(20,30) → 大音量=強め(12,22)。
 # guidance-scale 5 前提。10 以下まで下げると過剰変換になりやすいので 12 で止める。
 TA_BASE, TA_MIN = 20, 12   # t_index[0]: 無音=20(忠実寄り) → 大音量=12(AI再解釈が強い)
@@ -222,9 +225,10 @@ def onFrameStart(frame):
     n = _clamp(e / E_FULL, 0.0, 1.0)
     ta = int(round(TA_BASE - (TA_BASE - TA_MIN) * n))
     tb = int(round(TB_BASE - (TB_BASE - TB_MIN) * n))
-    slot = frame // EVERY
+    # 目標t_indexが2以上動いたら即TINDEX送信（音の抑揚をAIの激しさに直結させる）。
+    # 画像とTINDEXは同じin-flight枠を共有するが、整数が2動く時だけなので流量は破綻しない。
     changed = abs(ta - cb.last_ta()) >= 2
-    if changed and slot % 4 == 0:
+    if changed:
         cb.send_tindex(ws, ta, tb)
     else:
         cb.send_frame(ws)
