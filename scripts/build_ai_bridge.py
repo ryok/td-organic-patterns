@@ -11,12 +11,16 @@ StreamDiffusion の t_index を変調**する（音が大きいほど AI の再�
   build_organic_patterns / build_audio_reactive を実行済み（out1, aud_lag が在る）。
   GPU 側で streamdiffusion-ws が起動し、Mac 側で SSH トンネル(8765)が通っていること。
   サーバーは --t-index 22 32（2要素）で起動している前提（TINDEX は要素数一致が必須）。
-  ★重要（2026-09-11 S5で判明）: サーバーは **--guidance-scale 5 --cfg-type full** で
-  起動すること。既定の guidance_scale=1.2 だとプロンプトが拡散に効かず出力が茶色い無地に
-  潰れる。CFGを上げて初めてプロンプトが絵を支配し、油膜が虹色オイルスリックに変換される。
+  ★重要（S5/録画で判明）: サーバー起動は以下2点が必須。
+  (1) **--guidance-scale 5 --cfg-type full**（2026-09-11）: 既定 guidance_scale=1.2 だと
+      プロンプトが拡散に効かず出力が茶色い無地に潰れる。CFGを上げて初めてプロンプトが
+      絵を支配し、油膜が虹色オイルスリックに変換される。
+  (2) **--size 384 --out-quality 50**（2026-09-14）: 返信JPEGが大きい(512/q85で52-107KB)と
+      TDのWebSocket DATが数フレームで受信不能になり映像/録画が静止する（サーバは送信
+      できていて受信側の詰まり）。384/q50で~33KBに縮めると継続受信が安定する。
   推奨起動:
-    CUDA_VISIBLE_DEVICES=1 python -u sd_ws_server.py --size 512 --acceleration xformers \
-      --t-index 22 32 --guidance-scale 5 --cfg-type full \
+    CUDA_VISIBLE_DEVICES=1 python -u sd_ws_server.py --size 384 --acceleration xformers \
+      --t-index 22 32 --guidance-scale 5 --cfg-type full --out-quality 50 \
       --prompt "iridescent oil slick, psychedelic marbled rainbow, liquid metal swirls, ornate detailed, vibrant saturated"
 
 構成（hand-trail-ai の TD 側 3 点セットを移植し、送信ソースを out1 に差し替え）:
