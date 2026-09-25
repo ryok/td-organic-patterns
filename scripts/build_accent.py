@@ -45,6 +45,18 @@ build_accent.py
 
 import td
 
+# --- パラメータバス読込（詳細は td_param_bus.py） ---
+import importlib, os, sys
+try:
+    _SD = os.path.dirname(os.path.abspath(__file__))
+except NameError:                                   # Textport へのペースト時
+    _SD = os.environ.get('TD_ORGANIC_SCRIPTS',
+                         '/Users/ryookada/work/td-organic-patterns/scripts')
+if _SD not in sys.path:
+    sys.path.insert(0, _SD)
+import td_param_bus as pbus
+importlib.reload(pbus)
+
 PARENT = '/project1'
 
 # アクセントの鋭さ（大きいほど小節頭に集中した鋭い山）。
@@ -59,16 +71,6 @@ ACCENT_GAINS = [
     ('hsv1',      'saturationmult',  1.80),   # 色の濃さを一段
     ('level1',    'opacity',         0.003),  # 尾を微かに伸ばす（★小 gain 厳守）
 ]
-
-
-def _append_term(par, term):
-    """既存式(or 現在値)にアクセント項を後置加算。重複追記はしない(再実行安全)。"""
-    cur = par.expr or ''
-    if term in cur:
-        return                      # 既に追記済み（再ビルド）→ 二重加算を防ぐ
-    if cur.strip() == '':
-        cur = repr(par.eval())      # 式が無ければ現在値をベース定数として採用
-    par.expr = f"({cur}) + {term}"
 
 
 def build_accent():
@@ -90,14 +92,19 @@ def build_accent():
             '拍位相の供給源がありません。先に build_bpm_sync.py を実行してください。'
         )
 
-    env = f"(1-op('{src}')['rampbar'])**{ACCENT_SHARP}"
+    # 位相ソースは PHASE_SRC 経由（beatsync 導入後も張り替え不要で自動追従）。
+    # 上の src 判定はビルド時の存在チェックとログ用に残す。
+    env = f"(1-{pbus.PHASE_SRC}['rampbar'])**{ACCENT_SHARP}"
 
     for node_name, par_name, gain in ACCENT_GAINS:
         target = p.op(node_name)
         if target is None or not hasattr(target.par, par_name):
             print(f'[warn] {node_name}.{par_name} が見つからずスキップ')
             continue
-        _append_term(getattr(target.par, par_name), f"{env}*{gain}")
+        # opacity(残留率)だけは合成後に 0.999 で締めて発散を防ぐ
+        clamp = (0.0, 0.999) if (node_name, par_name) == ('level1', 'opacity') else None
+        pbus.add_term(p, node_name, par_name, tag='accent',
+                      term=f"{env}*{gain}", clamp=clamp)
 
     print(f'[accent] build complete. Downbeat accent added via {src} rampbar '
           f'(sharp={ACCENT_SHARP}). Structure punches and brightness/saturation lift '

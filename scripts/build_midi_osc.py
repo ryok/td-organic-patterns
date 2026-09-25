@@ -49,6 +49,18 @@ build_midi_osc.py
 
 import td
 
+# --- パラメータバス読込（詳細は td_param_bus.py） ---
+import importlib, os, sys
+try:
+    _SD = os.path.dirname(os.path.abspath(__file__))
+except NameError:                                   # Textport へのペースト時
+    _SD = os.environ.get('TD_ORGANIC_SCRIPTS',
+                         '/Users/ryookada/work/td-organic-patterns/scripts')
+if _SD not in sys.path:
+    sys.path.insert(0, _SD)
+import td_param_bus as pbus
+importlib.reload(pbus)
+
 PARENT = '/project1'
 OSC_PORT = 9000        # TouchOSC 既定。ファイアウォール/同一LAN に注意
 CTRL_CHANS = ['k1', 'k2', 'k3', 'k4', 'k5', 'k6']
@@ -56,18 +68,21 @@ CTRL_CHANS = ['k1', 'k2', 'k3', 'k4', 'k5', 'k6']
 # 手動ノブ → エンジンパラメータの割当（後置加算する項）。
 # (対象ノード, パラメータ名, 'op(ctrl)参照式の右辺'）。
 # gain は「ノブ全開(=1.0)で足し込む最大量」。単位は各パラメータに準拠。
+# (対象ノード, パラメータ, 加算項, base, clamp)。tag='midi' でバスに登録する。
+# base=None は「そのパラメータに既にベースがあれば継承、無ければライブ値を捕捉」。
+# hueoffset だけは組み込みの時間スイープ base を明示して他タグと揃える。
 MIDI_MAPPINGS = [
     # k1: 大理石の流れ(ドメインワープ変位)を手で突き上げる
-    ('warp_disp', 'displaceweightx', "op('ctrl')['k1']*0.4"),
-    ('warp_disp', 'displaceweighty', "op('ctrl')['k1']*0.4"),
+    ('warp_disp', 'displaceweightx', "op('ctrl')['k1']*0.4", None, None),
+    ('warp_disp', 'displaceweighty', "op('ctrl')['k1']*0.4", None, None),
     # k2: 彩度をライブで持ち上げる（虹色イリデッセンスの強調）
-    ('hsv1', 'saturationmult', "op('ctrl')['k2']*3.0"),
+    ('hsv1', 'saturationmult', "op('ctrl')['k2']*3.0", None, None),
     # k3: 色相を手で回す（度）。自動の時間スイープに人手のオフセットを重ねる
-    ('hsv1', 'hueoffset', "op('ctrl')['k3']*180"),
-    # k4: フィードバック残留(opacity)。上げると構造が長く尾を引く（発散注意=小gain）
-    ('level1', 'opacity', "op('ctrl')['k4']*0.008"),
+    ('hsv1', 'hueoffset', "op('ctrl')['k3']*180", 'absTime.seconds*6', None),
+    # k4: フィードバック残留(opacity)。clamp で 0.999 上限=発散防止（小gainでも保険）
+    ('level1', 'opacity', "op('ctrl')['k4']*0.008", None, (0.0, 0.999)),
     # k5: シードノイズ振幅（うねりの元エネルギーを注入）
-    ('seed_noise', 'amp', "op('ctrl')['k5']*0.5"),
+    ('seed_noise', 'amp', "op('ctrl')['k5']*0.5", None, None),
     # k6 はノート/ボタン用途（下の scene 前進に使う）。連続項には割り当てない
 ]
 
@@ -97,18 +112,10 @@ def _apply_scene(idx):
         return
     n = st.numRows - 1
     row = (idx % n) + 1
-    blend = st[row, 'blend'].val
-    hue_base = float(st[row, 'hue_base'].val)
-    p.op('disp_comp').par.operand = blend
-    hsv = p.op('hsv1')
-    base_expr = f"{hue_base} + absTime.seconds*6"
-    if p.op('beatsync') is not None:             # 位相ロック層があれば beatsync 位相を優先
-        base_expr += " + op('beatsync')['rampbar']*40"
-    elif p.op('beat1') is not None:              # 無ければ BPM同期の beat1 位相
-        base_expr += " + op('beat1')['rampbar']*40"
-    if p.op('ctrl') is not None:                 # MIDI/OSC の手動色相を保存
-        base_expr += " + op('ctrl')['k3']*180"   # シーン再構築でも k3 を踏み潰さない
-    hsv.par.hueoffset.expr = base_expr
+    p.op('disp_comp').par.operand = st[row, 'blend'].val   # 表示側ブレンドだけ切替
+    # 色相はパラメータバスの 'scene_hue' 項(build_onset_scenes 由来)が scene_state
+    # 経由で自動追従する。ここで hsv1.hueoffset を書き換えないので、bpm の小節スイープや
+    # 手動色相(k3)を踏み潰さない。onset と midi の両状態機械が同じ index を進めるだけ。
 
 def onFrameStart(frame):
     p = me.parent()                  # 相対参照: 入れ子/別配置でも scene_state を辿れる
@@ -126,16 +133,6 @@ def onFrameStart(frame):
         ss.store('midi_armed', 1)
     return
 '''
-
-
-def _append_term(par, term):
-    """既存式(or 現在値)に MIDI/OSC 項を後置加算。重複追記はしない(再実行安全)。"""
-    cur = par.expr or ''
-    if term in cur:
-        return                      # 既に追記済み（再ビルド）→ 二重加算を防ぐ
-    if cur.strip() == '':
-        cur = repr(par.eval())      # 式が無ければ現在値をベース定数として採用
-    par.expr = f"({cur}) + {term}"
 
 
 def build_midi_osc():
@@ -205,13 +202,16 @@ def build_midi_osc():
     ctrl.nodeX, ctrl.nodeY = -80, -800
     ctrl.inputConnectors[0].connect(mix)
 
-    # --- エンジン各パラメータに MIDI/OSC 項を後置加算（既存の audio/bpm 項を保持） ---
-    for node_name, par_name, term in MIDI_MAPPINGS:
+    # --- エンジン各パラメータに MIDI/OSC 項を登録（tag='midi'。audio/bpm 項と共存） ---
+    for node_name, par_name, term, base, clamp in MIDI_MAPPINGS:
         target = p.op(node_name)
         if target is None or not hasattr(target.par, par_name):
             print(f'[warn] {node_name}.{par_name} が見つからずスキップ')
             continue
-        _append_term(getattr(target.par, par_name), term)
+        # 色相は周期パラメータなので合成後に % 360（[-360,360] クランプ張り付き防止）
+        wrap = 360 if (node_name, par_name) == ('hsv1', 'hueoffset') else None
+        pbus.add_term(p, node_name, par_name, tag='midi',
+                      term=term, base=base, clamp=clamp, wrap=wrap)
 
     # --- k6(ボタン) → シーン前進（onset のテーブルがある時だけ） ---
     ex = p.op('midi_scene_exec')

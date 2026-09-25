@@ -100,26 +100,11 @@ PHASE_CHANS = 'rampbeat rampbar'
 # フォールバックはここ1点に集約する（各パラメータ式には撒かない）。
 BEATSYNC_INDEX_EXPR = "1 if op('ablink') is not None else 0"
 
-# 位相ロックで beatsync に張り替える対象（beat1 の位相ランプを読んでいる式）。
-PHASE_REBIND_TARGETS = [
-    ('warp_disp', 'displaceweightx'),
-    ('warp_disp', 'displaceweighty'),
-    ('hsv1', 'valuemult'),
-    ('hsv1', 'hueoffset'),
-]
-
-
-def _rebind_to_beatsync(par):
-    """式中の op('beat1')['rampbeat'|'rampbar'] を op('beatsync')[...] へ置換。
-    既存の audio/midi 項を保ったまま位相ソースだけ差し替える。二重適用は冪等
-    （beat1 参照が消えた後は no-op）。"""
-    cur = par.expr or ''
-    if "op('beat1')" not in cur:
-        return
-    new = (cur.replace("op('beat1')['rampbeat']", "op('beatsync')['rampbeat']")
-              .replace("op('beat1')['rampbar']", "op('beatsync')['rampbar']"))
-    if new != cur:
-        par.expr = new
+# 注: 以前はここで各パラメータ式の op('beat1') を op('beatsync') へ文字列置換して
+# いたが、パラメータバス導入後は bpm_sync / accent の拍項が PHASE_SRC
+# ("(op('beatsync') or op('beat1'))") を使うため、beatsync ができた瞬間に自動で
+# そちらへ切替わる。バスを経由しないライブ式の直接書き換えはバスの再合成と競合する
+# ため撤去した（位相ロックは beatsync Null を作るだけでよい）。
 
 
 def build_ableton_link():
@@ -187,13 +172,8 @@ def build_ableton_link():
     bs.inputConnectors[0].connect(sw)
     bs.cook(force=True)
 
-    # --- 下流の位相参照を beat1 → beatsync に張り替え ---
-    for node_name, par_name in PHASE_REBIND_TARGETS:
-        target = p.op(node_name)
-        if target is None or not hasattr(target.par, par_name):
-            print(f'[warn] {node_name}.{par_name} が見つからず位相張り替えをスキップ')
-            continue
-        _rebind_to_beatsync(getattr(target.par, par_name))
+    # 下流の位相参照は張り替え不要（PHASE_SRC が beatsync を自動優先する）。
+    # この beatsync Null ができた時点で bpm/accent の拍項が自動で切替わる。
 
     print('[ableton_link] build complete. '
           'Enable Link in your DAW (same LAN). '
@@ -201,8 +181,8 @@ def build_ableton_link():
           'the DAW tempo now drives /local/time.tempo (fail-safe 120 when no peer). '
           "Phase-lock ON: rampbeat/rampbar are read via op('beatsync') "
           '(ablink phase-locked when present, beat1 otherwise). '
-          'Rebuild build_onset_scenes.py / build_midi_osc.py too so their '
-          '_apply_scene uses beatsync for the hue sweep.')
+          'No expression rebinding needed — the parameter bus terms auto-switch '
+          'to beatsync as soon as this Null exists.')
     return al
 
 

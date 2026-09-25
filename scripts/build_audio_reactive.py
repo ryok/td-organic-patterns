@@ -36,6 +36,18 @@ build_organic_patterns.py の油膜・大理石エンジンを「音楽反応（
 
 import td
 
+# --- パラメータバス読込（詳細は td_param_bus.py） ---
+import importlib, os, sys
+try:
+    _SD = os.path.dirname(os.path.abspath(__file__))
+except NameError:                                   # Textport へのペースト時
+    _SD = os.environ.get('TD_ORGANIC_SCRIPTS',
+                         '/Users/ryookada/work/td-organic-patterns/scripts')
+if _SD not in sys.path:
+    sys.path.insert(0, _SD)
+import td_param_bus as pbus
+importlib.reload(pbus)
+
 PARENT = '/project1'
 LR = (640, 360)
 
@@ -90,20 +102,23 @@ AUDIO_WIRES = {
     'aud_lag':           [(0, 'aud_merge')],
 }
 
-# --- ベースエンジンへ焼き込む式（base + band*gain） -------------------------
-# (対象ノード, パラメータ名, 式) の形。式は絶対 op() 参照で aud_lag を読む。
+# --- ベースエンジンへ焼き込む項（tag='audio' でパラメータバスに加算登録） ------
+# (対象ノード, パラメータ, 加算項, base, clamp) の形。式は絶対 op() 参照で
+# aud_lag を読む。base はそのパラメータの無音時の静止値。バスが base+term を
+# 合成するので、bpm/accent/midi の項と同じパラメータでも奪い合わずに共存する。
 MAPPINGS = [
     # 低域(キック/ベース) → ドメインワープの変位量。ビートで大理石が波打つ。
-    ('warp_disp', 'displaceweightx', "0.09 + op('aud_lag')['low']*0.35"),
-    ('warp_disp', 'displaceweighty', "0.09 + op('aud_lag')['low']*0.35"),
+    ('warp_disp', 'displaceweightx', "op('aud_lag')['low']*0.35", '0.09', None),
+    ('warp_disp', 'displaceweighty', "op('aud_lag')['low']*0.35", '0.09', None),
     # 中域(コード/ボーカル) → シードノイズ振幅。うねりの元エネルギーを注入。
-    ('seed_noise', 'amp', "0.16 + op('aud_lag')['mid']*0.6"),
+    ('seed_noise', 'amp', "op('aud_lag')['mid']*0.6", '0.16', None),
     # 高域(ハイハット/シンバル) → エッジ強度と彩度。金属リムがきらめく。
-    ('edge1', 'strength', "3.0 + op('aud_lag')['high']*6.0"),
-    ('hsv1', 'saturationmult', "2.2 + op('aud_lag')['high']*1.5"),
+    ('edge1', 'strength', "op('aud_lag')['high']*6.0", '3.0', None),
+    ('hsv1', 'saturationmult', "op('aud_lag')['high']*1.5", '2.2', None),
     # 全体音量 → フィードバックゲイン。大音量ほど構造が長く残る（発散寸前まで）。
-    # base=0.985 は無音時の安定値。上限側でも 0.997 程度に留め発散を防ぐ。
-    ('level1', 'opacity', "0.985 + op('aud_lag')['rms']*0.012"),
+    # base=0.985 は無音時の安定値。clamp で 0.999 上限=残留率が1を超えて発散するのを
+    # 防ぐ（accent/midi の opacity 項が同時に乗っても安全）。
+    ('level1', 'opacity', "op('aud_lag')['rms']*0.012", '0.985', (0.0, 0.999)),
 ]
 
 
@@ -139,13 +154,14 @@ def build_audio():
         for idx, up in links:
             n.inputConnectors[idx].connect(created[up])
 
-    # ベースエンジンへ式を焼き込む
-    for node_name, par_name, expr in MAPPINGS:
+    # ベースエンジンへ項を登録（パラメータバスが base+term を合成）
+    for node_name, par_name, term, base, clamp in MAPPINGS:
         target = p.op(node_name)
         if target is None or not hasattr(target.par, par_name):
             print(f'[warn] {node_name}.{par_name} が見つからずスキップ')
             continue
-        getattr(target.par, par_name).expr = expr
+        pbus.add_term(p, node_name, par_name, tag='audio',
+                      term=term, base=base, clamp=clamp)
 
     print('[audio_reactive] build complete. '
           'Set aud_in device to your mic/line, view /project1/out1, and play sound.')

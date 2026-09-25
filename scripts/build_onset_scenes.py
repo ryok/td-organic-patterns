@@ -43,9 +43,29 @@ build_onset_scenes.py
 
 import td
 
+# --- パラメータバス読込（詳細は td_param_bus.py） ---
+import importlib, os, sys
+try:
+    _SD = os.path.dirname(os.path.abspath(__file__))
+except NameError:                                   # Textport へのペースト時
+    _SD = os.environ.get('TD_ORGANIC_SCRIPTS',
+                         '/Users/ryookada/work/td-organic-patterns/scripts')
+if _SD not in sys.path:
+    sys.path.insert(0, _SD)
+import td_param_bus as pbus
+importlib.reload(pbus)
+
 PARENT = '/project1'
 ONSET_HI = 0.18   # 発火閾値（上）
 ONSET_LO = 0.08   # 再武装閾値（下）
+
+# 現在シーンの hue_base を scene_state 経由で毎フレーム読む定常項。
+# これをパラメータバスに 'scene_hue' タグで一度だけ登録すれば、シーンが進んで
+# scene_state['scene'] が変わるだけで色相が追従する。実行時に hsv1.hueoffset を
+# 書き換える必要がなくなり、bpm/midi の色相項との奪い合いも起きない。
+SCENE_HUE_TERM = ("(float(op('scene_table')[int(op('scene_state')['scene'])"
+                  "%(op('scene_table').numRows-1)+1,'hue_base']) "
+                  "if (op('scene_table') and op('scene_state')) else 0)")
 
 # シーン定義: (表示側ブレンド, hue 基準オフセット[度])。
 # すべて disp_comp（表示側）に適用されるブレンド=ループ非依存で安全なもの。
@@ -84,18 +104,9 @@ def _apply_scene(idx):
     st = p.op('scene_table')
     n = st.numRows - 1               # ヘッダ除く
     row = (idx % n) + 1
-    blend = st[row, 'blend'].val
-    hue_base = float(st[row, 'hue_base'].val)
-    p.op('disp_comp').par.operand = blend    # 表示側を切替（ループは触らない）
-    hsv = p.op('hsv1')
-    base_expr = f"{hue_base} + absTime.seconds*6"
-    if p.op('beatsync') is not None:         # 位相ロック層があれば beatsync 位相を優先
-        base_expr += " + op('beatsync')['rampbar']*40"
-    elif p.op('beat1') is not None:          # 無ければ BPM同期の beat1 位相
-        base_expr += " + op('beat1')['rampbar']*40"
-    if p.op('ctrl') is not None:             # MIDI/OSC の手動色相(k3)も維持
-        base_expr += " + op('ctrl')['k3']*180"
-    hsv.par.hueoffset.expr = base_expr
+    p.op('disp_comp').par.operand = st[row, 'blend'].val   # 表示側ブレンドだけ切替
+    # 色相はパラメータバスの 'scene_hue' 項が scene_state 経由で自動追従するため、
+    # ここで hsv1.hueoffset を書き換えない（所有権はバスに一元化。bpm/midi の項も温存）。
 
 def onFrameStart(frame):
     p = me.parent()                  # 相対参照: 入れ子/別配置でも scene_state を辿れる
@@ -157,14 +168,13 @@ def build_onset():
     ed.par.framestart = True         # onFrameStart を毎フレーム呼ぶ
     ed.text = ONSET_CODE.replace('{HI}', repr(ONSET_HI)).replace('{LO}', repr(ONSET_LO))
 
-    # 初期状態: scene 0（add / hue 0）
+    # 初期状態: scene 0（add）。表示側ブレンドだけ設定する。
     p.op('disp_comp').par.operand = SCENES[0][0]
-    he = f"{SCENES[0][1]} + absTime.seconds*6"
-    if p.op('beatsync') is not None:         # 位相ロック層があれば beatsync を優先
-        he += " + op('beatsync')['rampbar']*40"
-    elif p.op('beat1') is not None:
-        he += " + op('beat1')['rampbar']*40"
-    p.op('hsv1').par.hueoffset.expr = he
+    # 色相はパラメータバスに 'scene_hue' 項として登録（scene_state を毎フレーム参照）。
+    # base=absTime.seconds*6 は組み込みの時間スイープ。bpm の小節スイープ(bpm_hue)や
+    # midi の手動色相(midi_k3)は各自のタグで別途加算されるので、ここでは触れない。
+    pbus.add_term(p, 'hsv1', 'hueoffset', 'scene_hue', SCENE_HUE_TERM,
+                  base='absTime.seconds*6', wrap=360)
 
     print('[onset_scenes] build complete. Kicks in the low band advance the scene '
           '(display-side disp_comp blend + hue). Inject __onsettest low=0.5 to test.')

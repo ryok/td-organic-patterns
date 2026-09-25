@@ -28,6 +28,18 @@ Emboss/Edge は表示側に配置している。大理石状の「流れ」は T
 
 import td
 
+# --- パラメータバス読込（詳細は td_param_bus.py）。拡張間の式合成を一元化する ---
+import importlib, os, sys
+try:
+    _SD = os.path.dirname(os.path.abspath(__file__))
+except NameError:                                   # Textport へのペースト時
+    _SD = os.environ.get('TD_ORGANIC_SCRIPTS',
+                         '/Users/ryookada/work/td-organic-patterns/scripts')
+if _SD not in sys.path:
+    sys.path.insert(0, _SD)
+import td_param_bus as pbus
+importlib.reload(pbus)
+
 PARENT = '/project1'
 LR = (640, 360)      # フィードバックループ解像度（低め=構造が大きく大理石化しやすい）
 HR = (1280, 720)     # 表示解像度
@@ -74,7 +86,9 @@ NODES = {
     }),
     'hsv1': dict(type='hsvadjustTOP', x=1000, y=100, pars={
         'saturationmult': 2.2, 'valuemult': 1.25,
-        'hueoffset': ('expr', 'absTime.seconds*6'),
+        # % 360 必須: hueoffset は [-360,360] にクランプされ、素の absTime*6 だと
+        # 起動1分で 360 に張り付き色相スイープが止まる（拡張なし単体でも起きる）。
+        'hueoffset': ('expr', '(absTime.seconds*6) % 360'),
     }),
     'out1': dict(type='outTOP', x=1200, y=100, res=HR, pars={}),
 }
@@ -108,6 +122,11 @@ def build():
     p = op(PARENT)
     if p is None:
         raise RuntimeError(f'{PARENT} が見つかりません。TDプロジェクトを確認してください。')
+
+    # ベースエンジンの作り直し=素の base からのやり直しなので、パラメータバスの
+    # 登録簿をここで破棄する。以降の拡張(audio/bpm/onset/midi/accent)は再実行時に
+    # 各自のタグ項を再登録する（登録簿はノード名で参照するため再生成に強い）。
+    pbus.reset(p)
 
     # 既存の同名ノードを掃除（再ビルド対応）
     for name in list(NODES.keys()) + ['sharpkernel']:
