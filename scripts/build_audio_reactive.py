@@ -11,7 +11,8 @@ build_organic_patterns.py の油膜・大理石エンジンを「音楽反応（
   ベースエンジンの主要パラメータを解析値で駆動する式を焼き込む。
 
 設計方針（base + gain パターン）:
-  各パラメータは `base + op('aud_lag')['band']*gain` の形で式化する。
+  各パラメータは `base + op('aud_out')['band']*gain` の形で式化する（aud_out は
+  aud_lag を通すだけの出口。慣性の拡張 build_liquid_audio.py がここに差し込む）。
   - 無音時: 解析値が 0 → base 値そのまま（= 元の静的パッチと同じ絵）
   - 音が鳴ると: band 値が加算され、うねり/彩度/エッジ/発散ゲインが増幅
   こうすると「マイクを繋がなくても壊れない」かつ「鳴らすと動く」を両立できる。
@@ -90,6 +91,10 @@ AUDIO_NODES = {
     # Lag: FFT はフレーム毎に激しく揺れるので attack/release で平滑化。
     # lag1(attack)=0.02 は立ち上がりを速く、lag2(release)=0.15 は余韻を残す。
     'aud_lag': dict(type='lagCHOP', x=420, y=-380, pars={'lag1': 0.02, 'lag2': 0.15}),
+    # aud_out: 映像側の項が読む単一の出口（beatsync / ctrl と同じ思想）。ここでは
+    # aud_lag をそのまま通すだけ。build_liquid_audio.py が手前にばね（慣性）の経路を
+    # 差し込むときの差し替え口になる。オンセット検出は速い aud_lag を直接読む。
+    'aud_out': dict(type='nullCHOP', x=900, y=-380, pars={}),
 }
 
 AUDIO_WIRES = {
@@ -107,27 +112,29 @@ AUDIO_WIRES = {
     'ren_rms':           [(0, 'band_rms')],
     'aud_merge':         [(0, 'ren_low'), (1, 'ren_mid'), (2, 'ren_high'), (3, 'ren_rms')],
     'aud_lag':           [(0, 'aud_merge')],
+    'aud_out':           [(0, 'aud_lag')],
 }
 
 # --- ベースエンジンへ焼き込む項（tag='audio' でパラメータバスに加算登録） ------
-# (対象ノード, パラメータ, 加算項, base, clamp) の形。式は絶対 op() 参照で
-# aud_lag を読む。base はそのパラメータの無音時の静止値。バスが base+term を
-# 合成するので、bpm/accent/midi の項と同じパラメータでも奪い合わずに共存する。
-# aud_lag 参照は pbus.ch() で包む（aud_lag が欠けても 0 に落ち、同じ式の他タグ項を
-# 巻き込んで止めない）。
+# (対象ノード, パラメータ, 加算項, base, clamp) の形。式は SRC（aud_out）を読む。
+# base はそのパラメータの無音時の静止値。バスが base+term を合成するので、
+# bpm/accent/midi の項と同じパラメータでも奪い合わずに共存する。
+# 参照は pbus.ch() で包む（SRC が欠けても 0 に落ち、同じ式の他タグ項を巻き込んで
+# 止めない）。
+SRC = 'aud_out'
 MAPPINGS = [
     # 低域(キック/ベース) → ドメインワープの変位量。ビートで大理石が波打つ。
-    ('warp_disp', 'displaceweightx', f"{pbus.ch('aud_lag', 'low')}*0.35", '0.09', None),
-    ('warp_disp', 'displaceweighty', f"{pbus.ch('aud_lag', 'low')}*0.35", '0.09', None),
+    ('warp_disp', 'displaceweightx', f"{pbus.ch(SRC, 'low')}*0.35", '0.09', None),
+    ('warp_disp', 'displaceweighty', f"{pbus.ch(SRC, 'low')}*0.35", '0.09', None),
     # 中域(コード/ボーカル) → シードノイズ振幅。うねりの元エネルギーを注入。
-    ('seed_noise', 'amp', f"{pbus.ch('aud_lag', 'mid')}*0.6", '0.16', None),
+    ('seed_noise', 'amp', f"{pbus.ch(SRC, 'mid')}*0.6", '0.16', None),
     # 高域(ハイハット/シンバル) → エッジ強度と彩度。金属リムがきらめく。
-    ('edge1', 'strength', f"{pbus.ch('aud_lag', 'high')}*6.0", '3.0', None),
-    ('hsv1', 'saturationmult', f"{pbus.ch('aud_lag', 'high')}*1.5", '2.2', None),
+    ('edge1', 'strength', f"{pbus.ch(SRC, 'high')}*6.0", '3.0', None),
+    ('hsv1', 'saturationmult', f"{pbus.ch(SRC, 'high')}*1.5", '2.2', None),
     # 全体音量 → フィードバックゲイン。大音量ほど構造が長く残る（発散寸前まで）。
     # base=0.985 は無音時の安定値。clamp で 0.999 上限=残留率が1を超えて発散するのを
     # 防ぐ（accent/midi の opacity 項が同時に乗っても安全）。
-    ('level1', 'opacity', f"{pbus.ch('aud_lag', 'rms')}*0.012", '0.985', (0.0, 0.999)),
+    ('level1', 'opacity', f"{pbus.ch(SRC, 'rms')}*0.012", '0.985', (0.0, 0.999)),
 ]
 
 
