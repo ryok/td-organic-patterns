@@ -14,10 +14,10 @@ build_midi_osc.py
   盛り上がりでノブを回して displace を突き上げる、といった演奏ができる。
 
 ■ base + gain の「加算重畳」設計（既存式を壊さない）
-  他スクリプトは各パラメータの式を丸ごと上書きするが、本スクリプトは
-  「今ある式に MIDI/OSC 項を後置追記」する。こうすると audio/bpm の項が
-  乗っていても消さずに済み、実行順に依存しない。
-      新式 = (現在の式 or 現在値) + op('ctrl')['kN']*gain
+  各パラメータへの寄与は tag='midi' の加算項としてパラメータバス
+  (td_param_bus.py) に登録する。バスが base + Σ(各タグの項) を組み直すので、
+  audio/bpm/accent の項と共存し、実行順にも依存しない。
+      項 = pbus.ch('ctrl', 'kN') * gain   # ctrl/kN が欠けても 0（式全体を止めない）
   無入力時 ctrl の各 k は 0 なので、繋がなくても元の絵を壊さない（fail-safe）。
 
 ■ ctrl ノードの合流設計（ハードが無くても壊れない）
@@ -71,18 +71,20 @@ CTRL_CHANS = ['k1', 'k2', 'k3', 'k4', 'k5', 'k6']
 # (対象ノード, パラメータ, 加算項, base, clamp)。tag='midi' でバスに登録する。
 # base=None は「そのパラメータに既にベースがあれば継承、無ければライブ値を捕捉」。
 # hueoffset だけは組み込みの時間スイープ base を明示して他タグと揃える。
+# ctrl 参照は pbus.ch() で包む（ctrl や kN チャンネルが欠けても 0 に落ち、
+# 同じ式の audio/bpm/accent 項を巻き込んで止めない）。
 MIDI_MAPPINGS = [
     # k1: 大理石の流れ(ドメインワープ変位)を手で突き上げる
-    ('warp_disp', 'displaceweightx', "op('ctrl')['k1']*0.4", None, None),
-    ('warp_disp', 'displaceweighty', "op('ctrl')['k1']*0.4", None, None),
+    ('warp_disp', 'displaceweightx', f"{pbus.ch('ctrl', 'k1')}*0.4", None, None),
+    ('warp_disp', 'displaceweighty', f"{pbus.ch('ctrl', 'k1')}*0.4", None, None),
     # k2: 彩度をライブで持ち上げる（虹色イリデッセンスの強調）
-    ('hsv1', 'saturationmult', "op('ctrl')['k2']*3.0", None, None),
+    ('hsv1', 'saturationmult', f"{pbus.ch('ctrl', 'k2')}*3.0", None, None),
     # k3: 色相を手で回す（度）。自動の時間スイープに人手のオフセットを重ねる
-    ('hsv1', 'hueoffset', "op('ctrl')['k3']*180", 'absTime.seconds*6', None),
+    ('hsv1', 'hueoffset', f"{pbus.ch('ctrl', 'k3')}*180", 'absTime.seconds*6', None),
     # k4: フィードバック残留(opacity)。clamp で 0.999 上限=発散防止（小gainでも保険）
-    ('level1', 'opacity', "op('ctrl')['k4']*0.008", None, (0.0, 0.999)),
+    ('level1', 'opacity', f"{pbus.ch('ctrl', 'k4')}*0.008", None, (0.0, 0.999)),
     # k5: シードノイズ振幅（うねりの元エネルギーを注入）
-    ('seed_noise', 'amp', "op('ctrl')['k5']*0.5", None, None),
+    ('seed_noise', 'amp', f"{pbus.ch('ctrl', 'k5')}*0.5", None, None),
     # k6 はノート/ボタン用途（下の scene 前進に使う）。連続項には割り当てない
 ]
 

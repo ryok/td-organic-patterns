@@ -92,9 +92,10 @@ def build_accent():
             '拍位相の供給源がありません。先に build_bpm_sync.py を実行してください。'
         )
 
-    # 位相ソースは PHASE_SRC 経由（beatsync 導入後も張り替え不要で自動追従）。
+    # 位相ソースは pbus.phase() 経由（beatsync 優先・張り替え不要。位相源が
+    # 両方消えても包絡 0 に落ちて式全体を止めない）。
     # 上の src 判定はビルド時の存在チェックとログ用に残す。
-    env = f"(1-{pbus.PHASE_SRC}['rampbar'])**{ACCENT_SHARP}"
+    env = f"(1-{pbus.phase('rampbar')})**{ACCENT_SHARP}"
 
     for node_name, par_name, gain in ACCENT_GAINS:
         target = p.op(node_name)

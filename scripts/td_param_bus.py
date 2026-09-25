@@ -53,6 +53,32 @@ STORE_KEY = 'param_bus'
 PHASE_SRC = "(op('beatsync') or op('beat1'))"
 
 
+# --- null 安全な CHOP 参照（式文字列ビルダ） ---------------------------------
+# バスは全タグの項を1本の式に合成するため、1つの項が op(...) の欠損で例外を
+# 出すと式全体がエラーになり、無関係な bpm/midi/accent の項まで止まる
+# （2026-09-25 実機再現: aud_lag を消すと warp_disp/hsv1/level1 が全滅）。
+# 項を書くときは生の op('x')['c'] ではなくこれらで包み、欠損時は既定値に落とす。
+# `x or 0` 形式は使わない: チャンネル値が正当に 0 のとき(拍頭の rampbeat 等)も
+# 既定値に置き換わってしまうため、明示的な `is not None` 判定にしている。
+
+def _guard(src, chan, default):
+    ref = src + "['" + chan + "']"
+    return ('(' + ref + ' if (' + src + ' is not None and ' + ref + ' is not None) else '
+            + repr(default) + ')')
+
+
+def ch(opname, chan, default=0):
+    """op(opname)[chan] の null 安全版。op かチャンネルが無ければ default(既定0)。"""
+    return _guard("op('" + opname + "')", chan, default)
+
+
+def phase(chan, default=1):
+    """拍位相 PHASE_SRC[chan] の null 安全版。beatsync も beat1 も無ければ default。
+    既定1は「拍の末尾」＝ (1-ramp)**k 型の包絡が 0 になる値。位相源が無いときは
+    脈動も無い、という意味にする(0 だと包絡が最大値で張り付く)。"""
+    return _guard(PHASE_SRC, chan, default)
+
+
 def _registry(parent):
     """storage から登録簿を取り出す(無ければ空 dict)。"""
     return parent.fetch(STORE_KEY, {})

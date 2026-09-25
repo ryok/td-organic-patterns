@@ -136,6 +136,50 @@ def test_wrap():
     print('OK wrap')
 
 
+class _Chop:
+    """チャンネル名→値。存在しないチャンネルは TD と同様 None を返す。"""
+    def __init__(self, **chans):
+        self._c = chans
+
+    def __getitem__(self, k):
+        return self._c.get(k)
+
+
+def _ev(expr, ops):
+    """ops に無い名前は None を返す op() で式を評価する（TD の欠損 op を再現）。"""
+    tdu = type('tdu', (), {'clamp': staticmethod(lambda v, lo, hi: max(lo, min(hi, v)))})
+    return eval(expr, {'op': lambda n: ops.get(n), 'tdu': tdu})
+
+
+def test_ch_null_safe():
+    e = pbus.ch('aud_lag', 'low') + '*0.35'
+    assert abs(_ev(e, {'aud_lag': _Chop(low=0.5)}) - 0.175) < 1e-9     # 通常
+    assert _ev(e, {}) == 0                                               # op 欠損 → 0
+    assert _ev(e, {'aud_lag': _Chop(mid=0.5)}) == 0                      # ch 欠損 → 0
+    print('OK ch null-safe')
+
+
+def test_phase_zero_is_not_missing():
+    """拍頭(rampbeat=0)を『欠損』と取り違えない（`or` 形式だと既定1に化けて包絡が消える）。"""
+    env = '(1-' + pbus.phase('rampbeat') + ')**2'
+    assert _ev(env, {'beat1': _Chop(rampbeat=0.0)}) == 1                 # 拍頭 → 包絡最大
+    assert _ev(env, {}) == 0                                             # 位相源なし → 包絡0
+    assert _ev(env, {'beatsync': _Chop(rampbeat=0.5), 'beat1': _Chop(rampbeat=0.9)}) == 0.25  # beatsync 優先
+    print('OK phase: zero is not missing / fallback')
+
+
+def test_missing_op_does_not_kill_other_terms():
+    """aud_lag 欠損でも同じ式の bpm/midi 項は生きている（2026-09-25 実機で全滅した症状の回帰）。"""
+    p = _engine()
+    pbus.add_term(p, 'warp_disp', 'displaceweightx', 'audio', pbus.ch('aud_lag', 'low') + '*0.35', base='0.09')
+    pbus.add_term(p, 'warp_disp', 'displaceweightx', 'bpm', '(1-' + pbus.phase('rampbeat') + ')**2*0.18')
+    pbus.add_term(p, 'warp_disp', 'displaceweightx', 'midi', pbus.ch('ctrl', 'k1') + '*0.4')
+    e = p.op('warp_disp').par.displaceweightx.expr
+    v = _ev(e, {'beat1': _Chop(rampbeat=0.0), 'ctrl': _Chop(k1=0.5)})   # aud_lag だけ欠損
+    assert abs(v - (0.09 + 0.18 + 0.2)) < 1e-9, v
+    print('OK missing aud_lag keeps bpm/midi terms alive')
+
+
 def test_remove():
     p = _engine()
     pbus.add_term(p, 'hsv1', 'saturationmult', 'audio', "A", base='2.2')
@@ -161,6 +205,9 @@ if __name__ == '__main__':
     test_hueoffset_multiowner()
     test_clamp()
     test_wrap()
+    test_ch_null_safe()
+    test_phase_zero_is_not_missing()
+    test_missing_op_does_not_kill_other_terms()
     test_remove()
     test_reset()
     print('\nALL PASS')

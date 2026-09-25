@@ -106,19 +106,21 @@ AUDIO_WIRES = {
 # (対象ノード, パラメータ, 加算項, base, clamp) の形。式は絶対 op() 参照で
 # aud_lag を読む。base はそのパラメータの無音時の静止値。バスが base+term を
 # 合成するので、bpm/accent/midi の項と同じパラメータでも奪い合わずに共存する。
+# aud_lag 参照は pbus.ch() で包む（aud_lag が欠けても 0 に落ち、同じ式の他タグ項を
+# 巻き込んで止めない）。
 MAPPINGS = [
     # 低域(キック/ベース) → ドメインワープの変位量。ビートで大理石が波打つ。
-    ('warp_disp', 'displaceweightx', "op('aud_lag')['low']*0.35", '0.09', None),
-    ('warp_disp', 'displaceweighty', "op('aud_lag')['low']*0.35", '0.09', None),
+    ('warp_disp', 'displaceweightx', f"{pbus.ch('aud_lag', 'low')}*0.35", '0.09', None),
+    ('warp_disp', 'displaceweighty', f"{pbus.ch('aud_lag', 'low')}*0.35", '0.09', None),
     # 中域(コード/ボーカル) → シードノイズ振幅。うねりの元エネルギーを注入。
-    ('seed_noise', 'amp', "op('aud_lag')['mid']*0.6", '0.16', None),
+    ('seed_noise', 'amp', f"{pbus.ch('aud_lag', 'mid')}*0.6", '0.16', None),
     # 高域(ハイハット/シンバル) → エッジ強度と彩度。金属リムがきらめく。
-    ('edge1', 'strength', "op('aud_lag')['high']*6.0", '3.0', None),
-    ('hsv1', 'saturationmult', "op('aud_lag')['high']*1.5", '2.2', None),
+    ('edge1', 'strength', f"{pbus.ch('aud_lag', 'high')}*6.0", '3.0', None),
+    ('hsv1', 'saturationmult', f"{pbus.ch('aud_lag', 'high')}*1.5", '2.2', None),
     # 全体音量 → フィードバックゲイン。大音量ほど構造が長く残る（発散寸前まで）。
     # base=0.985 は無音時の安定値。clamp で 0.999 上限=残留率が1を超えて発散するのを
     # 防ぐ（accent/midi の opacity 項が同時に乗っても安全）。
-    ('level1', 'opacity', "op('aud_lag')['rms']*0.012", '0.985', (0.0, 0.999)),
+    ('level1', 'opacity', f"{pbus.ch('aud_lag', 'rms')}*0.012", '0.985', (0.0, 0.999)),
 ]
 
 
