@@ -349,6 +349,37 @@ BPM同期（手打ちテンポ）を一歩進め、Ableton Live などの実 DAW
 - **オンセット検出は速いまま**。シーン切替は `aud_lag` を直接読むので、ばねで立ち上がりが
   鈍ってキックを取り逃すことはない。
 
+## 拡張: 細部の層（2層目のフィードバック / Detail Layer）
+
+ベースのループ（640×360）が作る大理石の**大きな流れ**に、1280×720 のもう1本の
+ループで作る**細かい膜状の線**を重ねる。流れに沿って、等高線のような細い線が何重にも走る。
+
+1. [scripts/build_organic_patterns.py](scripts/build_organic_patterns.py)（音で揺らすなら
+   [scripts/build_audio_reactive.py](scripts/build_audio_reactive.py) も）を実行済みで
+2. 続けて [scripts/build_detail_layer.py](scripts/build_detail_layer.py) を実行
+3. 細部の濃さは高域（ハイハット・シンバル）で揺れる
+
+| 合成前（disp_comp） | 合成後（detail_mix） | 足している層（det_view） |
+|---|---|---|
+| ![before](reference/detail_before.png) | ![after](reference/detail_after.png) | ![layer](reference/detail_layer_only.png) |
+
+（3枚とも同じフレームから書き出したもの。）
+
+### 設計のポイント（ループに触らず、表示側で重ねる）
+
+- **ベースのループには手を入れない**。1本目のループの出力 `null1` を拡大して読むだけで、
+  合成は表示側の `disp_comp` と `hsv1` の間（`detail_mix`、スクリーン合成）で行う。
+  ループ内に手を入れると 0/1 に張り付いて崩壊しうる（Emboss と同じ問題）。
+- **構成は1本目と同じで、スケールだけ変える**。差分合成 → ドメインワープ → シャープ →
+  減衰。ノイズの周期を 2.4 → 0.45、解像度を2倍、残留を 0.99 → 0.94（尾が短い）にした。
+  差分の相手を「拡大した大きな流れ」にしているので、細部が流れの形に沿って出る。
+- **2本目のループ自体はぼやけている**が、輪郭抽出（`det_edge`）で細い線だけを取り出して
+  重ねるので問題ない。
+- **濃さは音で揺れる**。`det_view.opacity = 0.35 + 高域×2.5`（0〜1にクランプ、
+  パラメータバスの tag='detail'）。もっと強く見せたいときは `build_detail_layer.py` の
+  base（0.35）を上げる。
+- **外すときは `build_organic_patterns.py` から組み直す**（`hsv1` の入力が `disp_comp` に戻る）。
+
 ## 作例の書き出し（Recorder）
 
 README 用の作例クリップを書き出すパイプライン。`hsv1` →

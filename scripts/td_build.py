@@ -111,7 +111,9 @@ def build_nodes(parent, nodes, wires, extra_destroy=()):
     nodes = {名前: dict(type=型名, x=, y=, res=(w,h)?, pars={...})}
     wires = {名前: [(入力index, 上流名), ...]}
     先に定義表の全ノード（と extra_destroy）を消してから作り、最後にまとめて繋ぐ
-    （上流がまだ無い状態で繋ごうとしないため）。作ったノードを {名前: ノード} で返す。
+    （上流がまだ無い状態で繋ごうとしないため）。上流名が定義表に無ければ parent 直下の
+    既存ノードを探す（null1 など別スクリプトが作ったノードへ繋ぐため）。
+    作ったノードを {名前: ノード} で返す。
     """
     destroy(parent, *nodes.keys(), *extra_destroy)
     created = {}
@@ -123,5 +125,8 @@ def build_nodes(parent, nodes, wires, extra_destroy=()):
         created[name] = n
     for name, links in wires.items():
         for idx, up in links:
-            created[name].inputConnectors[idx].connect(created[up])
+            src = created.get(up) or parent.op(up)
+            if src is None:
+                raise RuntimeError(f'{name} の入力{idx} に繋ぐ {up!r} が見つかりません。')
+            created[name].inputConnectors[idx].connect(src)
     return created
