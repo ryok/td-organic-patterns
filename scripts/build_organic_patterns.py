@@ -86,7 +86,9 @@ NODES = {
     }),
     'hsv1': dict(type='hsvadjustTOP', x=1000, y=100, pars={
         'saturationmult': 2.2, 'valuemult': 1.25,
-        'hueoffset': ('expr', 'absTime.seconds*6'),
+        # % 360 必須: hueoffset は [-360,360] にクランプされ、素の absTime*6 だと
+        # 起動1分で 360 に張り付き色相スイープが止まる（拡張なし単体でも起きる）。
+        'hueoffset': ('expr', '(absTime.seconds*6) % 360'),
     }),
     'out1': dict(type='outTOP', x=1200, y=100, res=HR, pars={}),
 }

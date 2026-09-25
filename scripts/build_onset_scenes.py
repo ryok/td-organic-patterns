@@ -174,7 +174,7 @@ def build_onset():
     # base=absTime.seconds*6 は組み込みの時間スイープ。bpm の小節スイープ(bpm_hue)や
     # midi の手動色相(midi_k3)は各自のタグで別途加算されるので、ここでは触れない。
     pbus.add_term(p, 'hsv1', 'hueoffset', 'scene_hue', SCENE_HUE_TERM,
-                  base='absTime.seconds*6')
+                  base='absTime.seconds*6', wrap=360)
 
     print('[onset_scenes] build complete. Kicks in the low band advance the scene '
           '(display-side disp_comp blend + hue). Inject __onsettest low=0.5 to test.')

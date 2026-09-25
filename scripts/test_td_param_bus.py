@@ -123,6 +123,19 @@ def test_clamp():
     print('OK clamp')
 
 
+def test_wrap():
+    """色相は % 360 で折り返す（TD の [-360,360] クランプ張り付き防止）。"""
+    p = _engine()
+    pbus.add_term(p, 'hsv1', 'hueoffset', 'scene_hue', "90", base='absTime.seconds*6', wrap=360)
+    pbus.add_term(p, 'hsv1', 'hueoffset', 'midi', "k3*180")
+    e = p.op('hsv1').par.hueoffset.expr
+    assert e.endswith(') % 360'), e
+    # 実数で評価して折り返しを確認（absTime.seconds=317.65 → 1905.9+90=1995.9 → 195.9）
+    val = eval(e, {'absTime': type('T', (), {'seconds': 317.65}), 'k3': 0})
+    assert 0 <= val < 360 and abs(val - 195.9) < 1e-6, val
+    print('OK wrap')
+
+
 def test_remove():
     p = _engine()
     pbus.add_term(p, 'hsv1', 'saturationmult', 'audio', "A", base='2.2')
@@ -147,6 +160,7 @@ if __name__ == '__main__':
     test_whole_replace_no_longer_wipes()
     test_hueoffset_multiowner()
     test_clamp()
+    test_wrap()
     test_remove()
     test_reset()
     print('\nALL PASS')

@@ -208,8 +208,10 @@ def build_midi_osc():
         if target is None or not hasattr(target.par, par_name):
             print(f'[warn] {node_name}.{par_name} が見つからずスキップ')
             continue
+        # 色相は周期パラメータなので合成後に % 360（[-360,360] クランプ張り付き防止）
+        wrap = 360 if (node_name, par_name) == ('hsv1', 'hueoffset') else None
         pbus.add_term(p, node_name, par_name, tag='midi',
-                      term=term, base=base, clamp=clamp)
+                      term=term, base=base, clamp=clamp, wrap=wrap)
 
     # --- k6(ボタン) → シーン前進（onset のテーブルがある時だけ） ---
     ex = p.op('midi_scene_exec')

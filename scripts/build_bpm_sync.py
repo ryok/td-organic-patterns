@@ -96,7 +96,7 @@ def build_bpm():
     # 色相の小節スイープは 'bpm_hue' タグ。PHASE_SRC で beatsync/beat1 を自動選択。
     pbus.add_term(p, 'hsv1', 'hueoffset', 'bpm_hue',
                   f"{pbus.PHASE_SRC}['rampbar']*{G['hue_bar_sweep']}",
-                  base='absTime.seconds*6')
+                  base='absTime.seconds*6', wrap=360)
 
     print(f'[bpm_sync] build complete at {TEMPO_BPM} BPM. '
           'Set /local/time tempo (or Tap Tempo) to match your track.')

@@ -69,18 +69,21 @@ def reset(parent):
     _save(parent, {})
 
 
-def add_term(parent, node, par, tag, term, base=None, clamp=None):
+def add_term(parent, node, par, tag, term, base=None, clamp=None, wrap=None):
     """(node, par) に tag 付きの加算項 term を登録し、式を再合成する。
 
     base:  明示すると登録簿のベースを更新(最後の明示が勝つ)。None のときは
            初回登録に限りライブのパラメータ式/値から捕捉する。
     clamp: (lo, hi) を渡すと合成後の式全体を tdu.clamp(..., lo, hi) で締める
            (opacity のようにフィードバック発散を防ぎたい残留率パラメータ用)。
+    wrap:  周期 w を渡すと合成後の式全体を (...) % w で折り返す(色相のような
+           周期パラメータ用)。hsv1.hueoffset は TD 側で [-360,360] にクランプされる
+           ため、absTime ベースの単調増加をそのまま渡すと1分で 360 に張り付く。
     同じ tag を再登録すると項は上書きされる(＝冪等・再実行安全)。
     """
     reg = _registry(parent)
     key = node + '.' + par
-    entry = reg.get(key) or {'base': None, 'terms': {}, 'clamp': None}
+    entry = reg.get(key) or {'base': None, 'terms': {}, 'clamp': None, 'wrap': None}
 
     if base is not None:
         entry['base'] = base if isinstance(base, str) else repr(base)
@@ -90,6 +93,8 @@ def add_term(parent, node, par, tag, term, base=None, clamp=None):
 
     if clamp is not None:
         entry['clamp'] = [clamp[0], clamp[1]]
+    if wrap is not None:
+        entry['wrap'] = wrap
 
     entry['terms'][tag] = term          # 同 tag は上書き＝冪等
     reg[key] = entry
@@ -112,10 +117,13 @@ def remove_term(parent, node, par, tag):
 
 
 def _compose(parent, node, par, entry):
-    """base + Σterms を組み立て、必要なら clamp を巻いて .expr へ1回だけ書く。"""
+    """base + Σterms を組み立て、必要なら wrap → clamp の順に巻いて .expr へ1回だけ書く。"""
     expr = entry.get('base') or '0'
     for term in entry['terms'].values():
         expr = '(' + expr + ') + (' + term + ')'
+    w = entry.get('wrap')
+    if w:
+        expr = '(' + expr + ') % ' + repr(w)
     c = entry.get('clamp')
     if c:
         expr = 'tdu.clamp(' + expr + ', ' + repr(c[0]) + ', ' + repr(c[1]) + ')'
