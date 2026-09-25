@@ -76,6 +76,11 @@ pbus.add_term(p, 'hsv1', 'saturationmult', tag='accent', term="(1-...)**6*1.8")
   式の張り替え（従来の `_rebind_to_beatsync`）は不要になった。
 - **発散防止**: `level1.opacity`（フィードバック残留率）は `clamp=(0.0, 0.999)` 付きで
   登録し、複数タグの項が同時に乗っても 1.0 を超えて暴走しないよう合成後に締める。
+- **参照切れで止まらない**: 1本の式に全タグの項を足すため、生の `op('aud_lag')['low']`
+  だと `aud_lag` が1つ欠けただけで式全体がエラーになり、無関係な拍・MIDI・アクセントの
+  項まで止まる。項の CHOP 参照は `pbus.ch('aud_lag', 'low')`（欠損時 0）と
+  `pbus.phase('rampbeat')`（位相源が無ければ 1＝拍の包絡が 0）で包む。値が正当に 0
+  の拍頭を欠損と取り違えないよう、`x or 0` ではなく `is not None` で判定している。
 - **フルリビルド**: `build_organic_patterns.py` が起動時に `pbus.reset()` で登録簿を
   破棄する。以降の拡張は再実行で各自のタグを登録し直す。
 - 登録内容は `pbus.dump(op('/project1'))` で確認できる。契約は

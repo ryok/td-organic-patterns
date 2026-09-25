@@ -50,8 +50,9 @@ PARENT = '/project1'
 TEMPO_BPM = 120.0   # /local/time に書き込むテンポ（ライブでは Tap Tempo 等で上書き）
 
 # 拍エンベロープ: 拍頭=1 → 拍末=0 の減衰パルス。
-# 位相ソースは PHASE_SRC 経由（beatsync 導入後も式を張り替えず自動追従）。
-BEAT_ENV = f"(1-{pbus.PHASE_SRC}['rampbeat'])**2"
+# 位相ソースは pbus.phase()（beatsync 優先・beat1 フォールバック・両方無ければ 1
+# ＝包絡 0）。beatsync 導入後も式を張り替えず自動追従する。
+BEAT_ENV = f"(1-{pbus.phase('rampbeat')})**2"
 
 # BPM同期でエンジンへ焼き込む式（gain 係数）
 GAINS = {
@@ -95,7 +96,7 @@ def build_bpm():
     pbus.add_term(p, 'hsv1', 'valuemult', 'bpm', f"{BEAT_ENV}*{G['value_pop']}", base='1.25')
     # 色相の小節スイープは 'bpm_hue' タグ。PHASE_SRC で beatsync/beat1 を自動選択。
     pbus.add_term(p, 'hsv1', 'hueoffset', 'bpm_hue',
-                  f"{pbus.PHASE_SRC}['rampbar']*{G['hue_bar_sweep']}",
+                  f"{pbus.phase('rampbar', default=0)}*{G['hue_bar_sweep']}",
                   base='absTime.seconds*6', wrap=360)
 
     print(f'[bpm_sync] build complete at {TEMPO_BPM} BPM. '

@@ -44,8 +44,10 @@ build_ableton_link.py
         beatsync_link (Select from ablink : rampbeat/rampbar 位相ロック済み)
         beatsync_sw   (Switch: ablink があれば link、無ければ free)
         beatsync      (Null : 式が参照する安定した単一点)
-    式側は op('beat1')['rampbeat'|'rampbar'] を op('beatsync')[...] に張り替える
-    だけ。フォールバック（DAW/ablink 不在 → beat1）は Switch の index 式に集約。
+    式側の張り替えは不要: bpm_sync / accent の拍項はパラメータバスの
+    pbus.phase()（"(op('beatsync') or op('beat1'))" を null 安全に包んだもの）で
+    位相を読むので、この beatsync Null ができた瞬間に自動で切替わる。
+    フォールバック（DAW/ablink 不在 → beat1）は Switch の index 式に集約。
 
   ■ fail-safe: ablink 不在なら Switch が beat1 側を選ぶので、位相ロック層を載せて
     も DAW が居なければ従来通り beat1 のタイムライン位相で回る（絵は壊れない）。
