@@ -68,13 +68,14 @@ NODES = {
         'operand': 'difference',
     }),
     'convo_sharp1': dict(type='convolveTOP', x=200, y=100, pars={
-        'dat': '/project1/sharpkernel', 'normalize': True,
+        # 兄弟ノード名で相対参照（tox を /project1 以外に置いても自分の kernel を読む）
+        'dat': 'sharpkernel', 'normalize': True,
     }),
     'level1': dict(type='levelTOP', x=600, y=100, res=LR, pars={
         'opacity': 0.99, 'blacklevel': 0.09, 'gamma1': 0.75,
     }),
     'null1': dict(type='nullTOP', x=800, y=100, res=LR, pars={}),
-    'fb1': dict(type='feedbackTOP', x=-600, y=0, pars={'top': '/project1/null1'}),
+    'fb1': dict(type='feedbackTOP', x=-600, y=0, pars={'top': 'null1'}),
     # --- 表示ブランチ ---
     'disp_level': dict(type='levelTOP', x=600, y=350, res=HR, pars={
         'brightness1': 1.15, 'blacklevel': 0.28, 'gamma1': 1.9,
