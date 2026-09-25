@@ -52,20 +52,27 @@ PARENT = '/project1'
 LR = (640, 360)
 
 # --- オーディオ解析チェーンのノード定義 ------------------------------------
-# Audio Spectrum は 22050 サンプルの片側スペクトル。人間の可聴域の主要帯を
-# サンプルインデックス範囲で低/中/高に割る（厳密な Hz 変換ではなく体感優先）。
+# Audio Spectrum は 22050 サンプルの片側スペクトル。frequencylog=0（線形）にすると
+# サンプル番号 ≒ Hz になる（実測: 400Hz→393番、2kHz→1997番）。その番号の範囲で
+# 低/中/高に割る（厳密な Hz 変換ではなく体感優先）。
+#
+# 🚨 既定の frequencylog=1（対数目盛り）だと 60Hz が 5260番に出て番号≠Hz になる。
+#    Trim も既定の relative='rel'（相対）だと start/end が入力の先頭/末尾からのずれに
+#    なり、各帯域がスペクトル末尾まで丸ごと含んでしまう。どちらも初回コミットから
+#    効いておらず、low/mid/high がほぼ同じ値になっていた（2026-09-25 実機で確認）。
 AUDIO_NODES = {
     'aud_in': dict(type='audiodeviceinCHOP', x=-600, y=-400, pars={}),
-    'aud_spec': dict(type='audiospectrumCHOP', x=-420, y=-400, pars={}),
-    # Trim CHOP: サンプル範囲で帯域を切り出す（start/end はサンプル番号）
+    'aud_spec': dict(type='audiospectrumCHOP', x=-420, y=-400, pars={'frequencylog': 0}),
+    # Trim CHOP: 絶対位置(relative='abs')のサンプル範囲で帯域を切り出す
+    # （単位は startunit/endunit の既定 'samples'）
     'band_low':  dict(type='trimCHOP', x=-260, y=-320, pars={
-        'units': 'samples', 'start': 2, 'end': 120,
+        'relative': 'abs', 'start': 2, 'end': 120,
     }),
     'band_mid':  dict(type='trimCHOP', x=-260, y=-400, pars={
-        'units': 'samples', 'start': 120, 'end': 900,
+        'relative': 'abs', 'start': 120, 'end': 900,
     }),
     'band_high': dict(type='trimCHOP', x=-260, y=-480, pars={
-        'units': 'samples', 'start': 900, 'end': 4000,
+        'relative': 'abs', 'start': 900, 'end': 4000,
     }),
     # Analyze CHOP: 帯域内の平均でスカラー化（=その帯のエネルギー）
     'aud_analyze_low':  dict(type='analyzeCHOP', x=-100, y=-320, pars={'function': 'average'}),
