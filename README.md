@@ -127,7 +127,14 @@ pbus.add_term(p, 'hsv1', 'saturationmult', tag='accent', term="(1-...)**6*1.8")
 - **FFT のジッタは Lag CHOP で平滑化**（attack=0.02 / release=0.15）。生の Audio
   Spectrum はフレーム毎に激しく揺れるため、そのまま繋ぐとパラメータが痙攣する。
 - **帯域分割は Trim CHOP のサンプル範囲で**。Audio Spectrum の 22050 サンプルを
-  低/中/高にインデックスで割る（厳密な Hz 変換より体感優先）。
+  低/中/高にインデックスで割る（厳密な Hz 変換より体感優先）。そのために2つの設定が要る:
+  - Audio Spectrum は `frequencylog=0`（線形）。既定の 1（対数目盛り）だと 60Hz が
+    5260番に出て、番号≠Hz になる。線形なら 400Hz→393番、2kHz→1997番
+  - Trim は `relative='abs'`（絶対位置）。既定の `rel` だと start/end が入力の先頭/末尾
+    からのずれになり、各帯域がスペクトル末尾まで丸ごと含んでしまう
+
+  （2026-09-25 まではこの2つが効いておらず、low/mid/high がほぼ同じ値だった。
+  正弦波で確認: 60Hz→low だけ、400Hz→mid だけ、2kHz→high だけが反応する。）
 
 ## 拡張: BPM同期（Beat Sync）
 
