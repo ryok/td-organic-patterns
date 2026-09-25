@@ -34,11 +34,24 @@ build_bpm_sync.py
 
 import td
 
+# --- パラメータバス読込（詳細は td_param_bus.py） ---
+import importlib, os, sys
+try:
+    _SD = os.path.dirname(os.path.abspath(__file__))
+except NameError:                                   # Textport へのペースト時
+    _SD = os.environ.get('TD_ORGANIC_SCRIPTS',
+                         '/Users/ryookada/work/td-organic-patterns/scripts')
+if _SD not in sys.path:
+    sys.path.insert(0, _SD)
+import td_param_bus as pbus
+importlib.reload(pbus)
+
 PARENT = '/project1'
 TEMPO_BPM = 120.0   # /local/time に書き込むテンポ（ライブでは Tap Tempo 等で上書き）
 
-# 拍エンベロープ: 拍頭=1 → 拍末=0 の減衰パルス
-BEAT_ENV = "(1-op('beat1')['rampbeat'])**2"
+# 拍エンベロープ: 拍頭=1 → 拍末=0 の減衰パルス。
+# 位相ソースは PHASE_SRC 経由（beatsync 導入後も式を張り替えず自動追従）。
+BEAT_ENV = f"(1-{pbus.PHASE_SRC}['rampbeat'])**2"
 
 # BPM同期でエンジンへ焼き込む式（gain 係数）
 GAINS = {
@@ -46,13 +59,6 @@ GAINS = {
     'value_pop':       0.4,   # 拍頭の明度ポップ
     'hue_bar_sweep':   40.0,  # 小節あたりの色相スイープ（度）
 }
-
-
-def _audio_low_term():
-    """build_audio_reactive.py が適用済みなら低域項を合成、なければ空文字。"""
-    if op(PARENT).op('aud_lag') is not None:
-        return " + op('aud_lag')['low']*0.35"
-    return ""
 
 
 def build_bpm():
@@ -80,18 +86,17 @@ def build_bpm():
     if tcomp is not None and hasattr(tcomp.par, 'tempo'):
         tcomp.par.tempo = TEMPO_BPM
 
-    # エンジンへ式を焼き込む（オーディオ低域があれば合成）
-    low = _audio_low_term()
-    wd = p.op('warp_disp')
-    disp_expr = f"0.09{low} + {BEAT_ENV}*{GAINS['warp_disp_pulse']}"
-    wd.par.displaceweightx.expr = disp_expr
-    wd.par.displaceweighty.expr = disp_expr
-
-    hsv = p.op('hsv1')
-    hsv.par.valuemult.expr = f"1.25 + {BEAT_ENV}*{GAINS['value_pop']}"
-    hsv.par.hueoffset.expr = (
-        f"absTime.seconds*6 + op('beat1')['rampbar']*{GAINS['hue_bar_sweep']}"
-    )
+    # エンジンへ拍項を登録（tag='bpm'）。audio の低域項(tag='audio')とは別タグなので
+    # 同じ warp_disp でも奪い合わず共存する。以前の _audio_low_term() の手動合成は不要。
+    G = GAINS
+    beat_pulse = f"{BEAT_ENV}*{G['warp_disp_pulse']}"
+    pbus.add_term(p, 'warp_disp', 'displaceweightx', 'bpm', beat_pulse, base='0.09')
+    pbus.add_term(p, 'warp_disp', 'displaceweighty', 'bpm', beat_pulse, base='0.09')
+    pbus.add_term(p, 'hsv1', 'valuemult', 'bpm', f"{BEAT_ENV}*{G['value_pop']}", base='1.25')
+    # 色相の小節スイープは 'bpm_hue' タグ。PHASE_SRC で beatsync/beat1 を自動選択。
+    pbus.add_term(p, 'hsv1', 'hueoffset', 'bpm_hue',
+                  f"{pbus.PHASE_SRC}['rampbar']*{G['hue_bar_sweep']}",
+                  base='absTime.seconds*6')
 
     print(f'[bpm_sync] build complete at {TEMPO_BPM} BPM. '
           'Set /local/time tempo (or Tap Tempo) to match your track.')

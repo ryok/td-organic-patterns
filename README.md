@@ -46,6 +46,45 @@ TouchDesigner 標準ノードで再構築したもの。
 
 （.tox はバイナリのため差分は追えない。パラメータ調整の履歴は A 側で管理する）
 
+## パラメータバス（拡張間の式合成）
+
+各拡張は同じパラメータ（`warp_disp.displaceweightx`、`hsv1.hueoffset` など）を
+駆動する。以前は「式を丸ごと上書き」する拡張（audio_reactive / bpm_sync）と
+「既存式に後置加算」する拡張（accent / midi_osc）が混在し、順序や再実行しだいで
+**先に書いた項が黙って消える**事故が起きた（例: audio→accent の後に audio を再実行
+すると accent 項が消える／`hueoffset` を bpm・onset・midi が奪い合う）。
+
+これを [scripts/td_param_bus.py](scripts/td_param_bus.py) の**パラメータバス**に一本化した。
+各拡張は自分の寄与を「タグ付きの加算項」として登録するだけで、バスが
+`base + Σ(各タグの項)` を毎回ゼロから組み直して `.expr` に1回だけ書く。
+
+```python
+# 例: audio が彩度に高域項を、accent が小節頭パンチを、別タグで登録する
+pbus.add_term(p, 'hsv1', 'saturationmult', tag='audio', term="op('aud_lag')['high']*1.5", base='2.2')
+pbus.add_term(p, 'hsv1', 'saturationmult', tag='accent', term="(1-...)**6*1.8")
+# → hsv1.saturationmult.expr = "((2.2) + (op('aud_lag')['high']*1.5)) + ((1-...)**6*1.8)"
+```
+
+- **順序非依存・再実行安全**: 合成は登録簿から毎回組み直すので、拡張をどの順で流しても、
+  どれを再実行しても同じ式に収束する（同じ tag は上書き＝冪等）。
+- **所有権の衝突が消える**: `hueoffset` は `bpm_hue`（小節スイープ）・`scene_hue`
+  （シーンの色相基準）・`midi`（手動 k3）が別タグで共存する。onset/midi の状態機械は
+  もう実行時に `hueoffset` を書き換えず、`scene_hue` 項が `scene_state` を毎フレーム
+  参照して自動追従する。
+- **位相ソースの自動切替**: 拍を読む項は `PHASE_SRC = "(op('beatsync') or op('beat1'))"`
+  を使う。Ableton Link 拡張で `beatsync` ができた瞬間に位相ロック側へ切替わるため、
+  式の張り替え（従来の `_rebind_to_beatsync`）は不要になった。
+- **発散防止**: `level1.opacity`（フィードバック残留率）は `clamp=(0.0, 0.999)` 付きで
+  登録し、複数タグの項が同時に乗っても 1.0 を超えて暴走しないよう合成後に締める。
+- **フルリビルド**: `build_organic_patterns.py` が起動時に `pbus.reset()` で登録簿を
+  破棄する。以降の拡張は再実行で各自のタグを登録し直す。
+- 登録内容は `pbus.dump(op('/project1'))` で確認できる。契約は
+  [scripts/test_td_param_bus.py](scripts/test_td_param_bus.py) が TD 無しで検証する。
+
+> Textport 運用では各 build スクリプト冒頭のローダが `td_param_bus.py` を
+> `sys.path` 経由で読み込む（パスは `__file__`、無ければ環境変数
+> `TD_ORGANIC_SCRIPTS` かリポジトリ既定パス）。
+
 ## 拡張: 音楽反応（Audio Reactive）
 
 ベースの油膜・大理石エンジンを音で駆動する派生。低域でドメインワープが波打ち、
