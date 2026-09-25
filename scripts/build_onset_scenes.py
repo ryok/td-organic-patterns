@@ -43,7 +43,7 @@ build_onset_scenes.py
 
 import td
 
-# --- パラメータバス読込（詳細は td_param_bus.py） ---
+# --- 共有モジュール読込（td_param_bus=式の合成 / td_build=ノード構築） ---
 import importlib, os, sys
 try:
     _SD = os.path.dirname(os.path.abspath(__file__))
@@ -52,8 +52,8 @@ except NameError:                                   # Textport へのペース�
                          '/Users/ryookada/work/td-organic-patterns/scripts')
 if _SD not in sys.path:
     sys.path.insert(0, _SD)
-import td_param_bus as pbus
-importlib.reload(pbus)
+import td_param_bus as pbus, td_build as tdb
+importlib.reload(pbus); importlib.reload(tdb)
 
 PARENT = '/project1'
 ONSET_HI = 0.18   # 発火閾値（上）
@@ -125,48 +125,28 @@ def onFrameStart(frame):
 
 
 def build_onset():
-    p = op(PARENT)
-    if p is None:
-        raise RuntimeError(f'{PARENT} が見つかりません。')
-    if p.op('disp_comp') is None or p.op('hsv1') is None:
-        raise RuntimeError(
-            'ベースネットワークが未構築です。先に build_organic_patterns.py を実行してください。'
-        )
+    p = tdb.get_parent(PARENT)
+    tdb.require(p, 'disp_comp', 'hsv1', hint='build_organic_patterns.py')
 
-    # --- scene_state: シーンindexを保持する Constant CHOP（1ch） ---
-    ex = p.op('scene_state')
-    if ex:
-        ex.destroy()
-    ss = p.create(td.constantCHOP, 'scene_state')
-    ss.nodeX, ss.nodeY = -600, -680
-    ss.par.name0 = 'scene'
-    ss.par.value0 = 0
-    for i in range(1, 8):            # 既定の余分な ch を消して 1ch に
-        nm = getattr(ss.par, f'name{i}', None)
-        if nm is not None:
-            nm.val = ''
+    # --- scene_state: シーンindexを保持する Constant CHOP（1ch）。既定の余分な ch
+    #     (name1..7) は空にして 1ch にする ---
+    ss = tdb.ensure(p, 'scene_state', 'constantCHOP', -600, -680,
+                    pars={'name0': 'scene', 'value0': 0,
+                          **{f'name{i}': '' for i in range(1, 8)}})
     ss.store('armed', 1)
 
     # --- scene_table: シーン定義（表示側ブレンド + hue 基準） ---
-    ex = p.op('scene_table')
-    if ex:
-        ex.destroy()
-    st = p.create(td.tableDAT, 'scene_table')
-    st.nodeX, st.nodeY = -430, -680
+    st = tdb.ensure(p, 'scene_table', 'tableDAT', -430, -680)
     st.clear()
     st.appendRow(['blend', 'hue_base'])
     for blend, hue in SCENES:
         st.appendRow([blend, str(hue)])
 
-    # --- onset_exec: オンセット検出の状態機械（Execute DAT） ---
-    ex = p.op('onset_exec')
-    if ex:
-        ex.destroy()
-    ed = p.create(td.executeDAT, 'onset_exec')
-    ed.nodeX, ed.nodeY = -260, -680
-    ed.par.active = True
-    ed.par.framestart = True         # onFrameStart を毎フレーム呼ぶ
-    ed.text = ONSET_CODE.replace('{HI}', repr(ONSET_HI)).replace('{LO}', repr(ONSET_LO))
+    # --- onset_exec: オンセット検出の状態機械（Execute DAT）。framestart=毎フレーム
+    #     onFrameStart を呼ぶ ---
+    ed = tdb.ensure(p, 'onset_exec', 'executeDAT', -260, -680,
+                    text=ONSET_CODE.replace('{HI}', repr(ONSET_HI)).replace('{LO}', repr(ONSET_LO)),
+                    pars={'active': True, 'framestart': True})
 
     # 初期状態: scene 0（add）。表示側ブレンドだけ設定する。
     p.op('disp_comp').par.operand = SCENES[0][0]

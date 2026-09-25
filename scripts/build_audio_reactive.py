@@ -36,7 +36,7 @@ build_organic_patterns.py の油膜・大理石エンジンを「音楽反応（
 
 import td
 
-# --- パラメータバス読込（詳細は td_param_bus.py） ---
+# --- 共有モジュール読込（td_param_bus=式の合成 / td_build=ノード構築） ---
 import importlib, os, sys
 try:
     _SD = os.path.dirname(os.path.abspath(__file__))
@@ -45,8 +45,8 @@ except NameError:                                   # Textport へのペース�
                          '/Users/ryookada/work/td-organic-patterns/scripts')
 if _SD not in sys.path:
     sys.path.insert(0, _SD)
-import td_param_bus as pbus
-importlib.reload(pbus)
+import td_param_bus as pbus, td_build as tdb
+importlib.reload(pbus); importlib.reload(tdb)
 
 PARENT = '/project1'
 LR = (640, 360)
@@ -125,36 +125,11 @@ MAPPINGS = [
 
 
 def build_audio():
-    p = op(PARENT)
-    if p is None:
-        raise RuntimeError(f'{PARENT} が見つかりません。')
-    if p.op('seed_noise') is None:
-        raise RuntimeError(
-            'ベースネットワークが未構築です。先に build_organic_patterns.py を実行してください。'
-        )
+    p = tdb.get_parent(PARENT)
+    tdb.require(p, 'seed_noise', hint='build_organic_patterns.py')
 
-    # 既存のオーディオノードを掃除（再ビルド対応）
-    for name in AUDIO_NODES:
-        ex = p.op(name)
-        if ex:
-            ex.destroy()
-
-    # ノード生成 + パラメータ
-    created = {}
-    for name, spec in AUDIO_NODES.items():
-        n = p.create(getattr(td, spec['type']), name)
-        n.nodeX, n.nodeY = spec['x'], spec['y']
-        for pn, pv in spec['pars'].items():
-            if not hasattr(n.par, pn):
-                continue
-            getattr(n.par, pn).val = pv
-        created[name] = n
-
-    # 配線
-    for name, links in AUDIO_WIRES.items():
-        n = created[name]
-        for idx, up in links:
-            n.inputConnectors[idx].connect(created[up])
+    # オーディオ解析ノードの生成 + パラメータ + 配線（同名は消してから作る）
+    created = tdb.build_nodes(p, AUDIO_NODES, AUDIO_WIRES)
 
     # ベースエンジンへ項を登録（パラメータバスが base+term を合成）
     for node_name, par_name, term, base, clamp in MAPPINGS:

@@ -34,7 +34,7 @@ build_bpm_sync.py
 
 import td
 
-# --- パラメータバス読込（詳細は td_param_bus.py） ---
+# --- 共有モジュール読込（td_param_bus=式の合成 / td_build=ノード構築） ---
 import importlib, os, sys
 try:
     _SD = os.path.dirname(os.path.abspath(__file__))
@@ -43,8 +43,8 @@ except NameError:                                   # Textport へのペース�
                          '/Users/ryookada/work/td-organic-patterns/scripts')
 if _SD not in sys.path:
     sys.path.insert(0, _SD)
-import td_param_bus as pbus
-importlib.reload(pbus)
+import td_param_bus as pbus, td_build as tdb
+importlib.reload(pbus); importlib.reload(tdb)
 
 PARENT = '/project1'
 TEMPO_BPM = 120.0   # /local/time に書き込むテンポ（ライブでは Tap Tempo 等で上書き）
@@ -63,24 +63,13 @@ GAINS = {
 
 
 def build_bpm():
-    p = op(PARENT)
-    if p is None:
-        raise RuntimeError(f'{PARENT} が見つかりません。')
-    if p.op('warp_disp') is None or p.op('hsv1') is None:
-        raise RuntimeError(
-            'ベースネットワークが未構築です。先に build_organic_patterns.py を実行してください。'
-        )
+    p = tdb.get_parent(PARENT)
+    tdb.require(p, 'warp_disp', 'hsv1', hint='build_organic_patterns.py')
 
-    # Beat CHOP（再ビルド対応）
-    ex = p.op('beat1')
-    if ex:
-        ex.destroy()
-    b = p.create(td.beatCHOP, 'beat1')
-    b.nodeX, b.nodeY = -600, -560
-    # 出力チャンネルを有効化（これらは ON/OFF トグル。テンポ設定ではない）
-    for tog in ('pulse', 'rampbeat', 'rampbar'):
-        if hasattr(b.par, tog):
-            getattr(b.par, tog).val = True
+    # Beat CHOP。pulse/rampbeat/rampbar は出力チャンネルの ON/OFF トグルであって
+    # テンポ設定ではない（実テンポは /local/time の tempo）。
+    b = tdb.ensure(p, 'beat1', 'beatCHOP', -600, -560,
+                   pars={'pulse': True, 'rampbeat': True, 'rampbar': True})
 
     # テンポはローカル Time COMP が持つ
     tcomp = op('/local/time')
@@ -94,7 +83,7 @@ def build_bpm():
     pbus.add_term(p, 'warp_disp', 'displaceweightx', 'bpm', beat_pulse, base='0.09')
     pbus.add_term(p, 'warp_disp', 'displaceweighty', 'bpm', beat_pulse, base='0.09')
     pbus.add_term(p, 'hsv1', 'valuemult', 'bpm', f"{BEAT_ENV}*{G['value_pop']}", base='1.25')
-    # 色相の小節スイープは 'bpm_hue' タグ。PHASE_SRC で beatsync/beat1 を自動選択。
+    # 色相の小節スイープは 'bpm_hue' タグ。pbus.phase() で beatsync/beat1 を自動選択。
     pbus.add_term(p, 'hsv1', 'hueoffset', 'bpm_hue',
                   f"{pbus.phase('rampbar', default=0)}*{G['hue_bar_sweep']}",
                   base='absTime.seconds*6', wrap=360)

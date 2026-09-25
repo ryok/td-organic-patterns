@@ -45,7 +45,7 @@ build_accent.py
 
 import td
 
-# --- パラメータバス読込（詳細は td_param_bus.py） ---
+# --- 共有モジュール読込（td_param_bus=式の合成 / td_build=ノード構築） ---
 import importlib, os, sys
 try:
     _SD = os.path.dirname(os.path.abspath(__file__))
@@ -54,8 +54,8 @@ except NameError:                                   # Textport へのペース�
                          '/Users/ryookada/work/td-organic-patterns/scripts')
 if _SD not in sys.path:
     sys.path.insert(0, _SD)
-import td_param_bus as pbus
-importlib.reload(pbus)
+import td_param_bus as pbus, td_build as tdb
+importlib.reload(pbus); importlib.reload(tdb)
 
 PARENT = '/project1'
 
@@ -74,15 +74,10 @@ ACCENT_GAINS = [
 
 
 def build_accent():
-    p = op(PARENT)
-    if p is None:
-        raise RuntimeError(f'{PARENT} が見つかりません。')
-    if p.op('hsv1') is None or p.op('warp_disp') is None:
-        raise RuntimeError(
-            'ベースネットワークが未構築です。先に build_organic_patterns.py を実行してください。'
-        )
+    p = tdb.get_parent(PARENT)
+    tdb.require(p, 'hsv1', 'warp_disp', hint='build_organic_patterns.py')
 
-    # 位相供給源をビルド時に確定（位相ロック層があれば beatsync、無ければ beat1）
+    # 位相供給源をビルド時に確定（どちらか一方あればよいので require ではなく個別判定）（位相ロック層があれば beatsync、無ければ beat1）
     if p.op('beatsync') is not None:
         src = 'beatsync'
     elif p.op('beat1') is not None:

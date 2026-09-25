@@ -49,7 +49,7 @@ build_midi_osc.py
 
 import td
 
-# --- パラメータバス読込（詳細は td_param_bus.py） ---
+# --- 共有モジュール読込（td_param_bus=式の合成 / td_build=ノード構築） ---
 import importlib, os, sys
 try:
     _SD = os.path.dirname(os.path.abspath(__file__))
@@ -58,8 +58,8 @@ except NameError:                                   # Textport へのペース�
                          '/Users/ryookada/work/td-organic-patterns/scripts')
 if _SD not in sys.path:
     sys.path.insert(0, _SD)
-import td_param_bus as pbus
-importlib.reload(pbus)
+import td_param_bus as pbus, td_build as tdb
+importlib.reload(pbus); importlib.reload(tdb)
 
 PARENT = '/project1'
 OSC_PORT = 9000        # TouchOSC 既定。ファイアウォール/同一LAN に注意
@@ -138,71 +138,39 @@ def onFrameStart(frame):
 
 
 def build_midi_osc():
-    p = op(PARENT)
-    if p is None:
-        raise RuntimeError(f'{PARENT} が見つかりません。')
-    if p.op('warp_disp') is None or p.op('hsv1') is None:
-        raise RuntimeError(
-            'ベースネットワークが未構築です。先に build_organic_patterns.py を実行してください。'
-        )
+    p = tdb.get_parent(PARENT)
+    tdb.require(p, 'warp_disp', 'hsv1', hint='build_organic_patterns.py')
 
-    # --- ctrl_manual: k1..k6=0 の常在チャンネル（未接続時の保険＋テスト注入） ---
-    ex = p.op('ctrl_manual')
-    if ex:
-        ex.destroy()
-    cm = p.create(td.constantCHOP, 'ctrl_manual')
-    cm.nodeX, cm.nodeY = -600, -840
+    # --- ctrl_manual: k1..k6=0 の常在チャンネル（未接続時の保険＋テスト注入）。
+    #     余分な既定 ch（k の後ろ〜name7）は空にする ---
+    manual = {}
     for i, ch in enumerate(CTRL_CHANS):
-        getattr(cm.par, f'name{i}').val = ch
-        getattr(cm.par, f'value{i}').val = 0.0
-    for i in range(len(CTRL_CHANS), 8):     # 余分な既定 ch を消す
-        nm = getattr(cm.par, f'name{i}', None)
-        if nm is not None:
-            nm.val = ''
+        manual[f'name{i}'] = ch
+        manual[f'value{i}'] = 0.0
+    manual.update({f'name{i}': '' for i in range(len(CTRL_CHANS), 8)})
+    cm = tdb.ensure(p, 'ctrl_manual', 'constantCHOP', -600, -840, pars=manual)
 
     # --- midi_map: MIDI In Map CHOP。実機で Mapper に k1..k6 を割り当てる ---
     #   要ライブ検証: 出力ch名は Mapper 設定依存。Map CHOP の CC は既に 0..1。
-    ex = p.op('midi_map')
-    if ex:
-        ex.destroy()
-    mm = p.create(td.midiinmapCHOP, 'midi_map')
-    mm.nodeX, mm.nodeY = -420, -840
+    mm = tdb.ensure(p, 'midi_map', 'midiinmapCHOP', -420, -840)
 
     # --- osc_in: OSC In CHOP。TouchOSC 等のフェーダを受ける（ポート既定9000） ---
     #   要ライブ検証: ポート/チャンネル命名は送信側レイアウト依存。
-    ex = p.op('osc_in')
-    if ex:
-        ex.destroy()
-    oi = p.create(td.oscinCHOP, 'osc_in')
-    oi.nodeX, oi.nodeY = -420, -760
-    if hasattr(oi.par, 'port'):
-        oi.par.port = OSC_PORT
+    oi = tdb.ensure(p, 'osc_in', 'oscinCHOP', -420, -760, pars={'port': OSC_PORT})
 
     # --- ctrl_mix: 3ソースを同名チャンネルで加算（Math CHOP Combine=Add） ---
     #   要ライブ検証: Combine パラメータ名。TD では chopop(='add') が一般的。
-    ex = p.op('ctrl_mix')
-    if ex:
-        ex.destroy()
-    mix = p.create(td.mathCHOP, 'ctrl_mix')
-    mix.nodeX, mix.nodeY = -240, -800
-    for pn in ('chopop', 'chanop', 'combinechops'):   # バージョン差を吸収
+    mix = tdb.ensure(p, 'ctrl_mix', 'mathCHOP', -240, -800, inputs=[mm, oi, cm])
+    for pn in ('chopop', 'chanop', 'combinechops'):   # バージョン差を吸収（最初に見つかった名前だけ）
         if hasattr(mix.par, pn):
             try:
                 getattr(mix.par, pn).val = 'add'
             except Exception:
                 pass
             break
-    mix.inputConnectors[0].connect(mm)
-    mix.inputConnectors[1].connect(oi)
-    mix.inputConnectors[2].connect(cm)
 
     # --- ctrl: expression が参照する安定した単一 Null ---
-    ex = p.op('ctrl')
-    if ex:
-        ex.destroy()
-    ctrl = p.create(td.nullCHOP, 'ctrl')
-    ctrl.nodeX, ctrl.nodeY = -80, -800
-    ctrl.inputConnectors[0].connect(mix)
+    ctrl = tdb.ensure(p, 'ctrl', 'nullCHOP', -80, -800, inputs=[mix])
 
     # --- エンジン各パラメータに MIDI/OSC 項を登録（tag='midi'。audio/bpm 項と共存） ---
     for node_name, par_name, term, base, clamp in MIDI_MAPPINGS:
@@ -216,15 +184,10 @@ def build_midi_osc():
                       term=term, base=base, clamp=clamp, wrap=wrap)
 
     # --- k6(ボタン) → シーン前進（onset のテーブルがある時だけ） ---
-    ex = p.op('midi_scene_exec')
-    if ex:
-        ex.destroy()
+    tdb.destroy(p, 'midi_scene_exec')
     if p.op('scene_table') is not None and p.op('scene_state') is not None:
-        ed = p.create(td.executeDAT, 'midi_scene_exec')
-        ed.nodeX, ed.nodeY = -80, -680
-        ed.par.active = True
-        ed.par.framestart = True
-        ed.text = MIDI_SCENE_CODE
+        tdb.ensure(p, 'midi_scene_exec', 'executeDAT', -80, -680, text=MIDI_SCENE_CODE,
+                   pars={'active': True, 'framestart': True})
         p.op('scene_state').store('midi_armed', 1)
         scene_note = ("k6(ボタン)でシーン前進も有効。")
     else:

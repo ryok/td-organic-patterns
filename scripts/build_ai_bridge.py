@@ -35,6 +35,18 @@ StreamDiffusion の t_index を変調**する（音が大きいほど AI の再�
 
 import td
 
+# --- 共有モジュール読込（td_param_bus=式の合成 / td_build=ノード構築） ---
+import importlib, os, sys
+try:
+    _SD = os.path.dirname(os.path.abspath(__file__))
+except NameError:                                   # Textport へのペースト時
+    _SD = os.environ.get('TD_ORGANIC_SCRIPTS',
+                         '/Users/ryookada/work/td-organic-patterns/scripts')
+if _SD not in sys.path:
+    sys.path.insert(0, _SD)
+import td_param_bus as pbus, td_build as tdb
+importlib.reload(pbus); importlib.reload(tdb)
+
 PARENT = '/project1'
 WS_ADDR = 'localhost'
 WS_PORT = 8765
@@ -260,50 +272,31 @@ def onExit():
 
 
 def build_ai_bridge():
-    p = op(PARENT)
-    if p is None:
-        raise RuntimeError(f'{PARENT} が見つかりません。')
-    if p.op('out1') is None:
-        raise RuntimeError('out1 が未構築です。先に build_organic_patterns.py を実行してください。')
+    p = tdb.get_parent(PARENT)
+    tdb.require(p, 'out1', hint='build_organic_patterns.py')
 
-    # 冪等: 既存を掃除
-    for name in ('ai_driver', 'websocket1', 'websocket1_callbacks1', 'ai_out', 'ai_out_callbacks'):
-        ex = p.op(name)
-        if ex:
-            ex.destroy()
+    # 冪等: 既存を先にまとめて掃除
+    tdb.destroy(p, 'ai_driver', 'websocket1', 'websocket1_callbacks1', 'ai_out',
+                'ai_out_callbacks')
 
     # コールバック Text DAT
-    cb = p.create(td.textDAT, 'websocket1_callbacks1')
-    cb.nodeX, cb.nodeY = -600, 200
-    cb.text = CALLBACKS_SRC
+    cb = tdb.ensure(p, 'websocket1_callbacks1', 'textDAT', -600, 200, text=CALLBACKS_SRC)
 
-    # WebSocket DAT（client）— active=0 で作成（後で別フレームに 1 して接続）
-    ws = p.create(td.websocketDAT, 'websocket1')
-    ws.nodeX, ws.nodeY = -420, 200
-    for pn, pv in (('netaddress', WS_ADDR), ('port', WS_PORT), ('active', False)):
-        if hasattr(ws.par, pn):
-            getattr(ws.par, pn).val = pv
+    # WebSocket DAT（client）— active=0 で作成（後で別フレームに 1 して接続）。
     # callbacks は OP 参照パラメータ。相対パス './...' は解決されず None になるため
     # 絶対パスで設定する（2026-09-11 実機で確認）。
-    if hasattr(ws.par, 'callbacks'):
-        ws.par.callbacks.val = PARENT + '/websocket1_callbacks1'
+    ws = tdb.ensure(p, 'websocket1', 'websocketDAT', -420, 200,
+                    pars={'netaddress': WS_ADDR, 'port': WS_PORT, 'active': False,
+                          'callbacks': PARENT + '/websocket1_callbacks1'})
 
     # ai_out（Script TOP）+ その callbacks DAT
-    aoc = p.create(td.textDAT, 'ai_out_callbacks')
-    aoc.nodeX, aoc.nodeY = -600, 60
-    aoc.text = AI_OUT_SRC
-    ao = p.create(td.scriptTOP, 'ai_out')
-    ao.nodeX, ao.nodeY = -420, 60
-    if hasattr(ao.par, 'callbacks'):
-        ao.par.callbacks.val = PARENT + '/ai_out_callbacks'
+    tdb.ensure(p, 'ai_out_callbacks', 'textDAT', -600, 60, text=AI_OUT_SRC)
+    ao = tdb.ensure(p, 'ai_out', 'scriptTOP', -420, 60,
+                    pars={'callbacks': PARENT + '/ai_out_callbacks'})
 
-    # ai_driver（Execute DAT）
-    drv = p.create(td.executeDAT, 'ai_driver')
-    drv.nodeX, drv.nodeY = -420, 340
-    drv.text = DRIVER_SRC
-    for pn in ('active', 'framestart'):
-        if hasattr(drv.par, pn):
-            getattr(drv.par, pn).val = True
+    # ai_driver（Execute DAT）: 本文を入れてから active/framestart を ON
+    drv = tdb.ensure(p, 'ai_driver', 'executeDAT', -420, 340, text=DRIVER_SRC,
+                     pars={'active': True, 'framestart': True})
 
     print('[ai_bridge] build complete. '
           'Ensure GPU server + SSH tunnel(8765) are up, then set '
