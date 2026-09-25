@@ -86,9 +86,14 @@ pbus.add_term(p, 'hsv1', 'saturationmult', tag='accent', term="(1-...)**6*1.8")
 - 登録内容は `pbus.dump(op('/project1'))` で確認できる。契約は
   [scripts/test_td_param_bus.py](scripts/test_td_param_bus.py) が TD 無しで検証する。
 
-> Textport 運用では各 build スクリプト冒頭のローダが `td_param_bus.py` を
-> `sys.path` 経由で読み込む（パスは `__file__`、無ければ環境変数
-> `TD_ORGANIC_SCRIPTS` かリポジトリ既定パス）。
+> Textport 運用では各 build スクリプト冒頭のローダが `td_param_bus.py`（式の合成）と
+> `td_build.py`（ノード構築）を `sys.path` 経由で読み込む（パスは `__file__`、無ければ
+> 環境変数 `TD_ORGANIC_SCRIPTS` かリポジトリ既定パス）。
+>
+> `td_build.py` はノード作成の定型（同名を消す → 作る → 座標 → 解像度・パラメータ →
+> 入力を繋ぐ）と前提ノードの確認をまとめたもの。`ensure(p, 'ctrl', 'nullCHOP', x, y,
+> inputs=[mix])` のように書く。存在しないパラメータ名を渡すと警告を出す（TD の
+> バージョン差を吸収しつつ、名前の打ち間違いには気づけるようにするため）。
 
 ## 拡張: 音楽反応（Audio Reactive）
 

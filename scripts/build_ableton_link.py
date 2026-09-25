@@ -74,6 +74,18 @@ op('beat1')→op('beatsync') の置換なので二重適用しても冪等。
 
 import td
 
+# --- 共有モジュール読込（td_param_bus=式の合成 / td_build=ノード構築） ---
+import importlib, os, sys
+try:
+    _SD = os.path.dirname(os.path.abspath(__file__))
+except NameError:                                   # Textport へのペースト時
+    _SD = os.environ.get('TD_ORGANIC_SCRIPTS',
+                         '/Users/ryookada/work/td-organic-patterns/scripts')
+if _SD not in sys.path:
+    sys.path.insert(0, _SD)
+import td_param_bus as pbus, td_build as tdb
+importlib.reload(pbus); importlib.reload(tdb)
+
 PARENT = '/project1'
 
 # Link 由来テンポで /local/time を駆動する fail-safe 式。
@@ -110,30 +122,14 @@ BEATSYNC_INDEX_EXPR = "1 if op('ablink') is not None else 0"
 
 
 def build_ableton_link():
-    p = op(PARENT)
-    if p is None:
-        raise RuntimeError(f'{PARENT} が見つかりません。')
-    if p.op('beat1') is None:
-        raise RuntimeError(
-            'BPM 同期スタックが未構築です。先に build_bpm_sync.py を実行してください。'
-        )
+    p = tdb.get_parent(PARENT)
+    tdb.require(p, 'beat1', hint='build_bpm_sync.py')
 
-    # --- Ableton Link CHOP（再ビルド対応） ---
-    ex = p.op('ablink')
-    if ex:
-        ex.destroy()
-    al = p.create(td.abletonlinkCHOP, 'ablink')
-    al.nodeX, al.nodeY = -600, -960
-
-    # Link を有効化（active=ノード稼働 / enable=Link 参加）
-    for pn in ('active', 'enable'):
-        if hasattr(al.par, pn):
-            getattr(al.par, pn).val = True
-    # 必要な出力チャンネルを生やす（トグル）
-    for tog in LINK_OUTPUT_TOGGLES:
-        if hasattr(al.par, tog):
-            getattr(al.par, tog).val = True
-    al.cook(force=True)
+    # --- Ableton Link CHOP ---
+    # active=ノード稼働 / enable=Link 参加、続けて必要な出力チャンネルのトグルを ON
+    al = tdb.ensure(p, 'ablink', 'abletonlinkCHOP', -600, -960,
+                    pars=dict.fromkeys(('active', 'enable', *LINK_OUTPUT_TOGGLES), True),
+                    cook=True)
 
     # --- テンポの供給源を Link に差し替え（/local/time を1点駆動） ---
     tc = op('/local/time')
@@ -143,38 +139,22 @@ def build_ableton_link():
 
     # --- 位相ロック: 位相ソースを単一 Null `beatsync` に集約 ---
     #   beatsync_free(beat1) と beatsync_link(ablink) を Switch で選び、Null で束ねる。
-    #   式側は op('beat1')[...] → op('beatsync')[...] に張り替える（下流一括）。
-    for nm in ('beatsync', 'beatsync_sw', 'beatsync_free', 'beatsync_link'):
-        ex = p.op(nm)
-        if ex:
-            ex.destroy()
+    #   4ノードは先にまとめて消す（片方だけ作り直された中間状態を挟まない）。
+    tdb.destroy(p, 'beatsync', 'beatsync_sw', 'beatsync_free', 'beatsync_link')
 
     # beat1 側（フォールバック=DAW/ablink 不在時のタイムライン位相）
-    free = p.create(td.selectCHOP, 'beatsync_free')
-    free.nodeX, free.nodeY = -600, -1080
-    free.par.chop = 'beat1'
-    free.par.channames = PHASE_CHANS
-
+    free = tdb.ensure(p, 'beatsync_free', 'selectCHOP', -600, -1080,
+                      pars={'chop': 'beat1', 'channames': PHASE_CHANS})
     # ablink 側（Link ネットワークに位相ロック済みのランプ）
-    link = p.create(td.selectCHOP, 'beatsync_link')
-    link.nodeX, link.nodeY = -600, -1160
-    link.par.chop = 'ablink'
-    link.par.channames = PHASE_CHANS
-
-    # Switch: index=1 で link（ablink があれば）、0 で free（beat1）
-    sw = p.create(td.switchCHOP, 'beatsync_sw')
-    sw.nodeX, sw.nodeY = -420, -1120
-    sw.inputConnectors[0].connect(free)     # index 0 = beat1
-    sw.inputConnectors[1].connect(link)     # index 1 = ablink
-    sw.par.index.expr = BEATSYNC_INDEX_EXPR
-
+    link = tdb.ensure(p, 'beatsync_link', 'selectCHOP', -600, -1160,
+                      pars={'chop': 'ablink', 'channames': PHASE_CHANS})
+    # Switch: 入力0=free(beat1)、入力1=link(ablink)。ablink があれば index=1
+    sw = tdb.ensure(p, 'beatsync_sw', 'switchCHOP', -420, -1120,
+                    inputs=[free, link], pars={'index': ('expr', BEATSYNC_INDEX_EXPR)})
     # Null: 式が参照する安定した単一点
-    bs = p.create(td.nullCHOP, 'beatsync')
-    bs.nodeX, bs.nodeY = -240, -1120
-    bs.inputConnectors[0].connect(sw)
-    bs.cook(force=True)
+    tdb.ensure(p, 'beatsync', 'nullCHOP', -240, -1120, inputs=[sw], cook=True)
 
-    # 下流の位相参照は張り替え不要（PHASE_SRC が beatsync を自動優先する）。
+    # 下流の位相参照は張り替え不要（pbus.phase() が beatsync を自動優先する）。
     # この beatsync Null ができた時点で bpm/accent の拍項が自動で切替わる。
 
     print('[ableton_link] build complete. '

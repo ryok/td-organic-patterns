@@ -46,6 +46,18 @@ build_recorder.py
 
 import td
 
+# --- 共有モジュール読込（td_param_bus=式の合成 / td_build=ノード構築） ---
+import importlib, os, sys
+try:
+    _SD = os.path.dirname(os.path.abspath(__file__))
+except NameError:                                   # Textport へのペースト時
+    _SD = os.environ.get('TD_ORGANIC_SCRIPTS',
+                         '/Users/ryookada/work/td-organic-patterns/scripts')
+if _SD not in sys.path:
+    sys.path.insert(0, _SD)
+import td_param_bus as pbus, td_build as tdb
+importlib.reload(pbus); importlib.reload(tdb)
+
 PARENT = '/project1'
 REC_RES = (480, 270)   # GIF/軽量動画向けの縮小解像度
 REC_FPS = 24
@@ -54,37 +66,16 @@ REC_FILE = '/Users/ryookada/work/td-organic-patterns/reference/demo_loop.mp4'
 
 
 def build_recorder():
-    p = op(PARENT)
-    if p is None:
-        raise RuntimeError(f'{PARENT} が見つかりません。')
-    if p.op('hsv1') is None:
-        raise RuntimeError(
-            'ベースネットワークが未構築です。先に build_organic_patterns.py を実行してください。'
-        )
+    p = tdb.get_parent(PARENT)
+    tdb.require(p, 'hsv1', hint='build_organic_patterns.py')
 
-    # 縮小段（再ビルド対応）
-    ex = p.op('rec_res')
-    if ex:
-        ex.destroy()
-    rr = p.create(td.resolutionTOP, 'rec_res')
-    rr.nodeX, rr.nodeY = 1250, 250
-    rr.par.outputresolution = 'custom'
-    rr.par.resolutionw = REC_RES[0]
-    rr.par.resolutionh = REC_RES[1]
-    rr.inputConnectors[0].connect(p.op('hsv1'))
+    # 縮小段
+    rr = tdb.ensure(p, 'rec_res', 'resolutionTOP', 1250, 250, res=REC_RES, inputs=['hsv1'])
 
     # Movie File Out
-    ex = p.op('rec_out')
-    if ex:
-        ex.destroy()
-    m = p.create(td.moviefileoutTOP, 'rec_out')
-    m.nodeX, m.nodeY = 1400, 100
-    m.par.type = 'movie'
-    m.par.videocodec = REC_CODEC
-    if hasattr(m.par, 'fps'):
-        m.par.fps = REC_FPS
-    m.par.file = REC_FILE
-    m.inputConnectors[0].connect(rr)
+    m = tdb.ensure(p, 'rec_out', 'moviefileoutTOP', 1400, 100, inputs=[rr],
+                   pars={'type': 'movie', 'videocodec': REC_CODEC, 'fps': REC_FPS,
+                         'file': REC_FILE})
 
     print(f'[recorder] build complete. codec={REC_CODEC}, res={REC_RES}, '
           f'file={REC_FILE}\n'
