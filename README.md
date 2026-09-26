@@ -158,7 +158,8 @@ pbus.add_term(p, 'hsv1', 'saturationmult', tag='accent', term="(1-...)**6*1.8")
 
 ### 設計のポイント（状態を持たない拍エンベロープ）
 
-拍の減衰パルスは `(1 - op('beat1')['rampbeat'])**2` で式生成する。拍頭=1 →
+拍の減衰パルスは `(1 - pbus.phase('rampbeat'))**2` で式生成する（`phase()` は位相ロック層
+`beatsync` があればそれ、無ければ `beat1` の `rampbeat` を読み、両方無ければ 1＝包絡 0）。拍頭=1 →
 拍末=0、二乗でアタックを鋭くする。1フレームの pulse スパイクを Lag で平滑化する
 方式も試したが、スパイクは捉えづらく状態依存で不安定だった。**rampbeat 由来の
 閉じた式はテンポから確定的に決まり、どのフレームでも値が一意=再現・検証が容易**。
@@ -232,19 +233,20 @@ pbus.add_term(p, 'hsv1', 'saturationmult', tag='accent', term="(1-...)**6*1.8")
 
 ### 設計のポイント（加算重畳 + fail-safe + 多重所有の解決）
 
-- **既存式を壊さない「後置加算」**。他拡張はパラメータ式を丸ごと上書きするが、
-  MIDI は `(現在の式) + op('ctrl')['kN']*gain` と後ろに足すだけ。audio/bpm の項が
-  乗っていても消さず、実行順にも依存しない。無入力時は各 k が 0 なので元の絵を壊さない。
+- **既存の項を壊さない加算**。各ノブの寄与は `tag='midi'` の項としてパラメータバスに
+  登録する（`pbus.ch('ctrl', 'kN')*gain`）。バスが base + 全タグの項を組み直すので、
+  audio/bpm/accent の項と共存し、実行順にも依存しない。無入力時は各 k が 0 なので
+  元の絵を壊さない。
 - **単一 `ctrl`（Null CHOP）を参照点に、手前で 3 ソースを加算**。`midi_map` +
   `osc_in` + `ctrl_manual`（k1..k6=0 の常在 Constant）を Math CHOP（Combine=Add）で
   同名チャンネル加算する。`ctrl_manual` が k1..k6 を必ず存在させるため、**ハードを
   繋がなくても「チャンネル無し」エラーで壊れない**。同時にテスト注入点も兼ねる。
 - **多重所有パラメータの衝突を解決**。`hueoffset` は base/BPM/オンセット/MIDI の
-  4 系統が寄与したい単一パラメータ。オンセット/MIDI のシーン切替は毎回 `hueoffset`
-  式を再構築するため、素朴に後置加算すると**シーンが 1 度切り替わっただけで色相ノブ
-  (k3) が黙って死ぬ**。そこで `_apply_scene` が式を再構築する際に `ctrl` が在れば
-  k3 項を再付与する（beat1 の小節スイープ項を再付与するのと同じ流儀）。これで
-  どちらの経路でシーンが進んでも手動色相が生き残る。
+  4 系統が寄与したい単一パラメータ。以前はシーン切替のたびに `hueoffset` の式を
+  組み直していたため、**シーンが 1 度切り替わっただけで色相ノブ (k3) が黙って死ぬ**
+  事故があった。今はパラメータバスで `bpm_hue`・`scene_hue`・`midi` が別タグとして
+  共存し、シーン切替（onset/MIDI の状態機械）は `hueoffset` を書き換えない。シーンの
+  色相は `scene_hue` の項が `scene_state` を毎フレーム読んで追従する。
 
 ## 拡張: Ableton Link で実 DAW とテンポ同期（Ableton Link）
 
@@ -256,9 +258,8 @@ BPM同期（手打ちテンポ）を一歩進め、Ableton Live などの実 DAW
 1. [scripts/build_organic_patterns.py](scripts/build_organic_patterns.py) +
    [scripts/build_bpm_sync.py](scripts/build_bpm_sync.py) を実行済みで
 2. 続けて [scripts/build_ableton_link.py](scripts/build_ableton_link.py) を実行
-   （オンセット/MIDI を併用する場合は、位相ロックを `_apply_scene` に行き渡らせるため
-   [scripts/build_onset_scenes.py](scripts/build_onset_scenes.py) /
-   [scripts/build_midi_osc.py](scripts/build_midi_osc.py) も再実行する）
+   （拍を読む項は `pbus.phase()` で `beatsync` を自動で優先するので、他の拡張を
+   再実行する必要はない）
 3. DAW（Ableton Live 等）で Link を ON にし、TD と同一 LAN に置く
 4. `ablink['numpeers']` が 1 以上・`['linked']=1` で接続成功。DAW のテンポ変更が
    `/local/time.tempo` に伝わり脈動が追従し、拍頭も DAW のダウンビートに位相ロックする
@@ -278,17 +279,16 @@ BPM同期（手打ちテンポ）を一歩進め、Ableton Live などの実 DAW
 - **位相ロック（拍頭合わせ）も実装済み**。テンポ同期は「速さ」を合わせるが、DAW の
   ダウンビートとの「位相」までは合わない（beat1 は TD のタイムライン 0 起点）。
   厳密な拍頭合わせには `op('ablink')['rampbeat']` / `['rampbar']`（Link ネットワークに
-  位相ロック済みのランプ）を読む必要がある。各式に「ablink があれば ablink、無ければ
-  beat1」の三項を撒くと、`hueoffset` のように複数系統（base/bpm/onset/midi）が寄与する
-  パラメータで**多重所有の衝突**（`_apply_scene` が式を再構築して他系統の項を踏み潰す）
-  を再燃させる。
+  位相ロック済みのランプ）を読む必要がある。
 - **位相ソースは単一 Null `beatsync` に集約**（`ctrl` と同じ思想）。
   `beatsync_free`(beat1) と `beatsync_link`(ablink) を `beatsync_sw`(Switch) で選び、
-  `beatsync`(Null) で束ねる。式側は `op('beat1')['rampbeat'|'rampbar']` を
-  `op('beatsync')[...]` に張り替えるだけ。フォールバック（DAW/ablink 不在→beat1）は
-  Switch の index 式 `1 if op('ablink') is not None else 0` の 1 点に集約する。
-  `_apply_scene`（onset/midi）も `beatsync` 優先に更新済みで、シーン切替後も位相項と
-  MIDI 手動色相 k3 項の両方が保持される（多重所有の踏み潰しが起きないことを実機で確認）。
+  `beatsync`(Null) で束ねる。フォールバック（DAW/ablink 不在→beat1）は Switch の
+  index 式 `1 if op('ablink') is not None else 0` の 1 点に集約する。
+- **式の張り替えは不要**。拍を読む項（BPM同期・アクセント）はパラメータバスの
+  `pbus.phase()`＝`(op('beatsync') or op('beat1'))` を null 安全に包んだもので位相を読む。
+  `beatsync` ができた瞬間に自動で位相ロック側へ切り替わるので、この拡張は `beatsync` を
+  作るだけで、他の式には触らない（以前はライブの式を文字列置換で張り替えていたが、
+  バスの組み直しと競合するので撤去した）。
 
 ## 拡張: 小節頭アクセント（Accent）
 
@@ -302,20 +302,22 @@ BPM同期（手打ちテンポ）を一歩進め、Ableton Live などの実 DAW
 2. 続けて [scripts/build_accent.py](scripts/build_accent.py) を実行
 3. 小節頭で構造がひと突きし、明度・彩度が一段上がる
 
-### 設計のポイント（後置加算 + 小節頭包絡）
+### 設計のポイント（パラメータバスへの加算 + 小節頭包絡）
 
 - **アクセント包絡は `(1 - rampbar) ** POW`**。`rampbar` は小節頭で 0・小節末で 1 の
   ランプなので、この式は**小節頭で最大→急減衰**する。`POW`（既定 6）を上げるほど
   山が鋭くなり「拍の点」に近づく（POW=6 でおよそ 1 拍かけて減衰）。
-- **既存式を壊さない後置加算**。warp/hsv/opacity の式には audio/bpm/onset/MIDI/
-  位相ロックの項が既に乗っている。それらを消さず末尾に `+ env*gain` を追記する。
-  谷では `env≈0` なので元の絵を壊さない fail-safe。同一文字列は二重加算しない（冪等）。
-- **位相ソースはビルド時に確定**。`beatsync`（位相ロック層）があればそれ、無ければ
-  `beat1` を `rampbar` 供給源に選ぶ。式内に `op('beatsync') is not None` の三項を
-  撒くと `_apply_scene` の多重所有問題と同種の脆さを招くため、ビルド時に 1 つに決める。
+- **既存の項を壊さない加算**。warp/hsv/opacity には audio/bpm/MIDI の項が既に乗って
+  いる。アクセントは `tag='accent'` の項 `env*gain` としてパラメータバスに登録するので、
+  他の項を消さず、何度再実行しても二重に足されない。谷では `env≈0` なので元の絵を
+  壊さない fail-safe。
+- **位相ソースは `pbus.phase('rampbar')`**。`beatsync`（位相ロック層）があればそれ、
+  無ければ `beat1` を読む。Ableton Link を後から入れても式を張り替えずに切り替わり、
+  位相源が両方消えても包絡 0 に落ちて式全体を止めない。
 - **フィードバック opacity は極小 gain**。小節頭で構造の"尾"を伸ばせるが、大きくすると
   0/1 に張り付いて発散する（Emboss/非線形ブレンドをループに置くのと同じ問題）。
-  よって opacity のアクセントだけ `gain=0.003` に抑える（無音時ピークでも 0.988 < 1.0）。
+  よって opacity のアクセントだけ `gain=0.003` に抑える。さらにバスが opacity の合成式を
+  `tdu.clamp(..., 0, 0.999)` で締めるので、複数の項が重なっても 1.0 を超えない。
 
 ## 拡張: 音への反応に慣性（Liquid Audio）
 
