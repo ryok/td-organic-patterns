@@ -19,6 +19,8 @@ build_time_stack.py
 - **板の位置は固定、間隔は COMP の Z スケールで伸縮**。表の tz は 0,1,2…の整数で、
   ts_geo.sz（Z スケール）が板の間隔になる。板は XY 平面にあるので Z に伸ばしても歪まない。
   音で動かすのは sz の1パラメータだけ（パラメータバス tag='timestack'、低域で伸びる）。
+- **自動露出**: 音楽反応で hsv1 が明るくなると加算で白く飛ぶので、積む元の平均輝度を
+  測って（ts_lum → ts_lum_c → ts_lum_f で0.4秒平滑化）全層の明るさを下げる。
 - **古い層ほど暗く**（表の c = 明るさ、インスタンスカラーで乗算）。加算合成なので
   奥行きの並べ替えが要らず、重なった所が明るくなる。ただし明るい模様を N 枚そのまま
   足すと全面が白く飽和する（実機で確認）。1枚あたり LAYER_GAIN に落とし、最新の1枚だけ
@@ -54,6 +56,11 @@ FADE_MIN = 0.12             # 一番古い層の相対的な明るさ（新し�
 LAYER_GAIN = 0.09           # 1枚あたりの明るさ（加算合成。重なった所ほど明るくなる。0.16 だと中央が白く飛んだ）
 NEWEST_GAIN = 0.85          # 一番手前（最新フレーム）だけ明るく残し、今の模様を見分けやすくする
 CAM_DIST = 3.3              # カメラから積層までの距離（板が画面の大半を占める程度）
+# 自動露出: 全層の明るさ = EXPO_TARGET / (積む元の平均輝度(0.4秒で平滑化) + 0.02)。
+# 音楽反応で hsv1 が明るくなると、固定のゲインでは48枚の加算で白く飛ぶ（実曲で確認）。
+# 明るいほど下げる。0.18 は無音・実曲の両方で白飛びせず模様が見えた値（実機で目視確認）。
+EXPO_TARGET = 0.18
+EXPO_RANGE = (0.25, 1.6)
 NEWEST_LAST = True          # Texture 3D TOP の配列で最新フレームが末尾(N-1)に入るか
 
 NODES = {
@@ -79,11 +86,18 @@ NODES = {
         'material': 'ts_mat',
         'sz': 0.05,
     }),
-    # 加算合成・深度を書かない（奥から手前へ光が重なる）
+    # 自動露出用: 積む元の平均輝度（1画素に平均 → r,g,b の3チャンネル）
+    'ts_lum': dict(type='analyzeTOP', x=1410, y=-470, pars={'op': 'average', 'scope': 'image'}),
+    'ts_lum_c': dict(type='toptoCHOP', x=1570, y=-470, pars={'top': 'ts_lum', 'crop': 'full'}),
+    # 音楽反応で明るさが1フレームごとに大きく跳ねる（0.9→0.08 を実測）。そのまま露出に使うと
+    # 積層全体が明滅するので、0.4 秒で追従させて曲の大きな起伏だけに反応させる。
+    'ts_lum_f': dict(type='lagCHOP', x=1730, y=-470, pars={'lag1': 0.4, 'lag2': 0.4}),
+    # 加算合成・深度を書かない（奥から手前へ光が重なる）。色＝全層に掛かる明るさ（自動露出）
     'ts_mat': dict(type='constantMAT', x=1570, y=-380, pars={
         'colormap': 'ts_cache',
         'blending': True, 'srcblend': 'one', 'destblend': 'one',
         'depthtest': False, 'depthwriting': False,
+        'colorr': ('expr', 'EXPO'), 'colorg': ('expr', 'EXPO'), 'colorb': ('expr', 'EXPO'),
     }),
     # 斜め上から見下ろし、左右にゆっくり周回する
     'ts_cam': dict(type='cameraCOMP', x=1730, y=-380, pars={
@@ -105,7 +119,18 @@ NODES = {
     'ts_out': dict(type='nullTOP', x=2050, y=-230, res=OUT_RES, pars={}),
 }
 
+# 自動露出の式（NODES の 'EXPO' をこれに置き換える）。ts_lum_c が無ければ平均輝度 0.16 とみなす。
+# TOP to CHOP を crop='full' にするとチャンネル名は r0/g0/b0（画素番号付き）になる。'r' と書くと
+# チャンネルが見つからず既定値 0.16 に落ち、倍率が常に 1.0 になる（実機で確認）。
+_LUM = ("((" + pbus.ch('ts_lum_f', 'r0', 0.16) + ")+(" + pbus.ch('ts_lum_f', 'g0', 0.16) + ")+("
+        + pbus.ch('ts_lum_f', 'b0', 0.16) + "))/3")
+EXPO_EXPR = f"tdu.clamp({EXPO_TARGET}/({_LUM}+0.02), {EXPO_RANGE[0]}, {EXPO_RANGE[1]})"
+for _pn in ('colorr', 'colorg', 'colorb'):
+    NODES['ts_mat']['pars'][_pn] = ('expr', EXPO_EXPR)
+
 WIRES = {
+    'ts_lum':    [(0, 'ts_res')],
+    'ts_lum_f':  [(0, 'ts_lum_c')],
     'ts_res':    [(0, 'hsv1')],
     'ts_cache':  [(0, 'ts_res')],
     'ts_comp':   [(0, 'ts_render'), (1, 'ts_bg')],
