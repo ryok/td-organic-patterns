@@ -60,9 +60,9 @@ TouchDesigner 標準ノードで再構築したもの。
 
 ```python
 # 例: audio が彩度に高域項を、accent が小節頭パンチを、別タグで登録する
-pbus.add_term(p, 'hsv1', 'saturationmult', tag='audio', term="op('aud_out')['high']*1.5", base='2.2')
+pbus.add_term(p, 'hsv1', 'saturationmult', tag='audio', term="op('aud_out')['high']*7.2", base='2.2')
 pbus.add_term(p, 'hsv1', 'saturationmult', tag='accent', term="(1-...)**6*1.8")
-# → hsv1.saturationmult.expr = "((2.2) + (op('aud_out')['high']*1.5)) + ((1-...)**6*1.8)"
+# → hsv1.saturationmult.expr = "((2.2) + (op('aud_out')['high']*7.2)) + ((1-...)**6*1.8)"
 ```
 
 - **順序非依存・再実行安全**: 合成は登録簿から毎回組み直すので、拡張をどの順で流しても、
@@ -136,6 +136,20 @@ pbus.add_term(p, 'hsv1', 'saturationmult', tag='accent', term="(1-...)**6*1.8")
 
   （2026-09-25 まではこの2つが効いておらず、low/mid/high がほぼ同じ値だった。
   正弦波で確認: 60Hz→low だけ、400Hz→mid だけ、2kHz→high だけが反応する。）
+- **ゲインは実曲で較正**。帯域分割を直すと各帯域の値の大きさが変わる（全体の音量 rms も
+  スペクトルから計算しているので変わる）。そこで修正前の設定を再現した解析を並べ、同じ曲
+  （Ableton → BlackHole、40 秒）で計って、**95 パーセンタイルでの揺れ幅が修正前と同じ**に
+  なるよう換算した（新ゲイン＝旧ゲイン×修正前 p95÷修正後 p95）。
+
+  | 値 | 修正後 p95 | 修正前 p95 | 効果とゲイン（旧 → 新） |
+  |---|---|---|---|
+  | low | 0.268 | 0.101 | 大理石の波打ち 0.35 → 0.13 |
+  | mid | 0.069 | 0.097 | うねりの強さ 0.6 → 0.85 |
+  | high | 0.018 | 0.088 | エッジ 6.0 → 29、彩度 1.5 → 7.2、細部の層 2.5 → 12 |
+  | rms | 0.041 | 0.245 | 構造の残り方 0.012 → 0.072 |
+
+  これは「修正前と同じ強さ」に戻す出発点で、見た目の最適値ではない。曲や好みに合わせて
+  `build_audio_reactive.py` の MAPPINGS を調整する。
 
 ## 拡張: BPM同期（Beat Sync）
 
@@ -378,7 +392,7 @@ BPM同期（手打ちテンポ）を一歩進め、Ableton Live などの実 DAW
   差分の相手を「拡大した大きな流れ」にしているので、細部が流れの形に沿って出る。
 - **2本目のループ自体はぼやけている**が、輪郭抽出（`det_edge`）で細い線だけを取り出して
   重ねるので問題ない。
-- **濃さは音で揺れる**。`det_view.opacity = 0.35 + 高域×2.5`（0〜1にクランプ、
+- **濃さは音で揺れる**。`det_view.opacity = 0.35 + 高域×12`（0〜1にクランプ、
   パラメータバスの tag='detail'）。もっと強く見せたいときは `build_detail_layer.py` の
   base（0.35）を上げる。
 - **外すときは `build_organic_patterns.py` から組み直す**（`hsv1` の入力が `disp_comp` に戻る）。
