@@ -121,20 +121,28 @@ AUDIO_WIRES = {
 # bpm/accent/midi の項と同じパラメータでも奪い合わずに共存する。
 # 参照は pbus.ch() で包む（SRC が欠けても 0 に落ち、同じ式の他タグ項を巻き込んで
 # 止めない）。
+#
+# ゲインの較正（2026-09-27、実曲 40 秒を Ableton → BlackHole で入力して計測）:
+# 帯域分割の修正（frequencylog=0 / Trim relative=abs）で各帯域と rms の値の大きさが
+# 変わったため、修正前の設定を再現した解析と同じ曲で並べて計り、「p95 での揺れ幅が
+# 修正前と同じ」になるよう換算した: 新ゲイン = 旧ゲイン × (修正前 p95 / 修正後 p95)。
+#   low  p95 0.268（修正前 0.101）→ ×0.375   mid  0.069（0.097）→ ×1.42
+#   high p95 0.018（修正前 0.088）→ ×4.82    rms  0.041（0.245）→ ×6.0
 SRC = 'aud_out'
 MAPPINGS = [
     # 低域(キック/ベース) → ドメインワープの変位量。ビートで大理石が波打つ。
-    ('warp_disp', 'displaceweightx', f"{pbus.ch(SRC, 'low')}*0.35", '0.09', None),
-    ('warp_disp', 'displaceweighty', f"{pbus.ch(SRC, 'low')}*0.35", '0.09', None),
+    ('warp_disp', 'displaceweightx', f"{pbus.ch(SRC, 'low')}*0.13", '0.09', None),
+    ('warp_disp', 'displaceweighty', f"{pbus.ch(SRC, 'low')}*0.13", '0.09', None),
     # 中域(コード/ボーカル) → シードノイズ振幅。うねりの元エネルギーを注入。
-    ('seed_noise', 'amp', f"{pbus.ch(SRC, 'mid')}*0.6", '0.16', None),
+    ('seed_noise', 'amp', f"{pbus.ch(SRC, 'mid')}*0.85", '0.16', None),
     # 高域(ハイハット/シンバル) → エッジ強度と彩度。金属リムがきらめく。
-    ('edge1', 'strength', f"{pbus.ch(SRC, 'high')}*6.0", '3.0', None),
-    ('hsv1', 'saturationmult', f"{pbus.ch(SRC, 'high')}*1.5", '2.2', None),
+    ('edge1', 'strength', f"{pbus.ch(SRC, 'high')}*29", '3.0', None),
+    ('hsv1', 'saturationmult', f"{pbus.ch(SRC, 'high')}*7.2", '2.2', None),
     # 全体音量 → フィードバックゲイン。大音量ほど構造が長く残る（発散寸前まで）。
-    # base=0.985 は無音時の安定値。clamp で 0.999 上限=残留率が1を超えて発散するのを
-    # 防ぐ（accent/midi の opacity 項が同時に乗っても安全）。
-    ('level1', 'opacity', f"{pbus.ch(SRC, 'rms')}*0.012", '0.985', (0.0, 0.999)),
+    # base=0.985 は無音時の安定値。p95 で +0.0029、実測最大でも +0.0034（0.988）。
+    # clamp で 0.999 上限=残留率が1を超えて発散するのを防ぐ（accent/midi の opacity 項が
+    # 同時に乗っても安全）。
+    ('level1', 'opacity', f"{pbus.ch(SRC, 'rms')}*0.072", '0.985', (0.0, 0.999)),
 ]
 
 
