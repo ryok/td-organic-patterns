@@ -60,9 +60,9 @@ TouchDesigner 標準ノードで再構築したもの。
 
 ```python
 # 例: audio が彩度に高域項を、accent が小節頭パンチを、別タグで登録する
-pbus.add_term(p, 'hsv1', 'saturationmult', tag='audio', term="op('aud_lag')['high']*1.5", base='2.2')
+pbus.add_term(p, 'hsv1', 'saturationmult', tag='audio', term="op('aud_out')['high']*1.5", base='2.2')
 pbus.add_term(p, 'hsv1', 'saturationmult', tag='accent', term="(1-...)**6*1.8")
-# → hsv1.saturationmult.expr = "((2.2) + (op('aud_lag')['high']*1.5)) + ((1-...)**6*1.8)"
+# → hsv1.saturationmult.expr = "((2.2) + (op('aud_out')['high']*1.5)) + ((1-...)**6*1.8)"
 ```
 
 - **順序非依存・再実行安全**: 合成は登録簿から毎回組み直すので、拡張をどの順で流しても、
@@ -78,7 +78,7 @@ pbus.add_term(p, 'hsv1', 'saturationmult', tag='accent', term="(1-...)**6*1.8")
   登録し、複数タグの項が同時に乗っても 1.0 を超えて暴走しないよう合成後に締める。
 - **参照切れで止まらない**: 1本の式に全タグの項を足すため、生の `op('aud_lag')['low']`
   だと `aud_lag` が1つ欠けただけで式全体がエラーになり、無関係な拍・MIDI・アクセントの
-  項まで止まる。項の CHOP 参照は `pbus.ch('aud_lag', 'low')`（欠損時 0）と
+  項まで止まる。項の CHOP 参照は `pbus.ch('aud_out', 'low')`（欠損時 0）と
   `pbus.phase('rampbeat')`（位相源が無ければ 1＝拍の包絡が 0）で包む。値が正当に 0
   の拍頭を欠損と取り違えないよう、`x or 0` ではなく `is not None` で判定している。
 - **フルリビルド**: `build_organic_patterns.py` が起動時に `pbus.reset()` で登録簿を
@@ -114,7 +114,8 @@ pbus.add_term(p, 'hsv1', 'saturationmult', tag='accent', term="(1-...)**6*1.8")
 
 ### 設計のポイント（base + gain）
 
-各パラメータは `base + op('aud_lag')['band']*gain` の式で駆動する。無音時は解析値が
+各パラメータは `base + op('aud_out')['band']*gain` の式で駆動する（`aud_out` は `aud_lag`
+を通すだけの出口で、慣性の拡張がここに差し込む）。無音時は解析値が
 0 に収束して base 値そのまま＝元の静的パッチと同じ絵になる。マイク未接続でも壊れず、
 鳴らすと動く。オーディオを「置換」でなく「加算」にすることでライブでの堅牢性を確保。
 
