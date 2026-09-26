@@ -42,7 +42,8 @@ TouchDesigner 標準ノードで再構築したもの。
 
 - [tox/organic_patterns.tox](tox/organic_patterns.tox) — ベースのカラー版のみ（最小構成）
 - [tox/organic_patterns_full.tox](tox/organic_patterns_full.tox) — 音楽反応・BPM同期・
-  オンセット・MIDI/OSC・Ableton Link・小節頭アクセント・録画まで含む完全版スナップショット
+  オンセット・MIDI/OSC・Ableton Link・小節頭アクセント・慣性・細部の層・時間の積層・録画まで
+  含む完全版スナップショット
 
 （.tox はバイナリのため差分は追えない。パラメータ調整の履歴は A 側で管理する）
 
@@ -396,6 +397,54 @@ BPM同期（手打ちテンポ）を一歩進め、Ableton Live などの実 DAW
   パラメータバスの tag='detail'）。もっと強く見せたいときは `build_detail_layer.py` の
   base（0.35）を上げる。
 - **外すときは `build_organic_patterns.py` から組み直す**（`hsv1` の入力が `disp_comp` に戻る）。
+
+## 拡張: 時間の積層（Time Stack）
+
+表示の最終段（`hsv1`）の直近48フレームを**奥行き方向に積み上げ**、時間を立体として見せる。
+油膜・大理石の模様が、どう移り変わってきたかが奥へ連なる地層のように見える。
+低域（キック・ベース）で層の間隔が伸び、カメラは左右にゆっくり周回する。
+
+1. [scripts/build_organic_patterns.py](scripts/build_organic_patterns.py)（音で動かすなら
+   [scripts/build_audio_reactive.py](scripts/build_audio_reactive.py) も）を実行済みで
+2. 続けて [scripts/build_time_stack.py](scripts/build_time_stack.py) を実行
+3. `/project1/ts_out` を表示する（`out1` はそのまま。平面の表示と積層を並べて使える）
+
+| 平面（hsv1） | 積層（ts_out） | 積層・別の時刻 |
+|---|---|---|
+| ![flat](reference/timestack_flat.png) | ![stack](reference/timestack_stack.png) | ![stack b](reference/timestack_stack_b.png) |
+
+（左と中央は同じフレームから書き出したもの。）
+
+### 設計のポイント（GLSL なしで 2D テクスチャ配列をインスタンスに貼る）
+
+- **`out1` は変えない**。`out1` は AI Bridge（StreamDiffusion への送信）の送信元なので、積層は
+  別出力 `ts_out` として足す。ベースのループにも触らない（表示側の `hsv1` を読むだけ）。
+- **Texture 3D TOP を 2D テクスチャ配列にして、Geometry COMP のインスタンステクスチャに渡す**。
+  `ts_cache`（type=texture2darray、cachesize=48）を `instancetexs` に指定し、各板に貼る枚数を
+  `instancetexindex`（インスタンス表の列 `i`）で選ぶ。GLSL MAT は要らない。
+- **配列は末尾が最新**。新しいフレームは末尾（47番）に入り、古いものが先頭へずれていく
+  （入力を赤に差し替え、47番を貼った板だけが0.3秒で赤くなることを実機で確認）。
+  最新の層を手前（tz=0）に置き、古いほど奥・暗くしている。
+- **板の位置は固定し、間隔は COMP の Z スケールで伸縮**。インスタンス表の `tz` は 0,-1,-2…の
+  整数で、`ts_geo.sz` が層の間隔になる。板は XY 平面にあるので Z に伸ばしても歪まない。
+  音で動かすのは `sz` の1パラメータだけ（`0.05 + 低域×0.35`、0.03〜0.2 にクランプ、
+  パラメータバスの tag='timestack'）。
+- **加算合成で重ねる**（深度を書かない）。奥行きの並べ替えが要らず、重なった所が明るくなる。
+  1枚あたりの明るさは 0.09 に落とし（大きいと中央が白く飛ぶ）、最新の1枚だけ 0.85 で残す。
+- **キャッシュは毎フレーム回す**（`ts_driver`、Execute DAT）。TD は参照されているノードしか
+  計算しないので、`ts_out` を表示していないと `ts_cache` も止まり、履歴が積まれない。
+  キャッシュ（軽い）だけを毎フレーム force cook し、描画は表示したときだけ計算される。
+- **解像度は落として積む**（640×360×48枚＝約44MB）。フル解像度にすると VRAM を食う。
+
+### 実装上の要点（ハマりどころ）
+
+- **Render TOP には背景色のパラメータが無く、背景は透明**。そのまま出すと PNG では画面の大半が
+  白く見える（中身は暗い）。黒の Constant TOP の上に `over` で重ねて不透明にしている（`ts_comp`）。
+- **DAT to CHOP は既定で「1行＝1チャンネル」**（`output=chanperrow`）。インスタンス表の列を
+  チャンネルにするには `output=chanpercol` にする。
+- **Texture 3D TOP を `numpyArray()` で読んでも、中身の確認には使えない**（更新されない1枚が
+  返ってきた）。並び順の確認は描画結果（Render TOP）で行った。
+- **ビルド直後はキャッシュが空**。直後に書き出すと何も積まれていない画面になる。数秒待ってから確認する。
 
 ## 作例の書き出し（Recorder）
 
