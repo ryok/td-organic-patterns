@@ -60,9 +60,9 @@ TouchDesigner 標準ノードで再構築したもの。
 
 ```python
 # 例: audio が彩度に高域項を、accent が小節頭パンチを、別タグで登録する
-pbus.add_term(p, 'hsv1', 'saturationmult', tag='audio', term="op('aud_lag')['high']*1.5", base='2.2')
+pbus.add_term(p, 'hsv1', 'saturationmult', tag='audio', term="op('aud_out')['high']*1.5", base='2.2')
 pbus.add_term(p, 'hsv1', 'saturationmult', tag='accent', term="(1-...)**6*1.8")
-# → hsv1.saturationmult.expr = "((2.2) + (op('aud_lag')['high']*1.5)) + ((1-...)**6*1.8)"
+# → hsv1.saturationmult.expr = "((2.2) + (op('aud_out')['high']*1.5)) + ((1-...)**6*1.8)"
 ```
 
 - **順序非依存・再実行安全**: 合成は登録簿から毎回組み直すので、拡張をどの順で流しても、
@@ -78,7 +78,7 @@ pbus.add_term(p, 'hsv1', 'saturationmult', tag='accent', term="(1-...)**6*1.8")
   登録し、複数タグの項が同時に乗っても 1.0 を超えて暴走しないよう合成後に締める。
 - **参照切れで止まらない**: 1本の式に全タグの項を足すため、生の `op('aud_lag')['low']`
   だと `aud_lag` が1つ欠けただけで式全体がエラーになり、無関係な拍・MIDI・アクセントの
-  項まで止まる。項の CHOP 参照は `pbus.ch('aud_lag', 'low')`（欠損時 0）と
+  項まで止まる。項の CHOP 参照は `pbus.ch('aud_out', 'low')`（欠損時 0）と
   `pbus.phase('rampbeat')`（位相源が無ければ 1＝拍の包絡が 0）で包む。値が正当に 0
   の拍頭を欠損と取り違えないよう、`x or 0` ではなく `is not None` で判定している。
 - **フルリビルド**: `build_organic_patterns.py` が起動時に `pbus.reset()` で登録簿を
@@ -114,7 +114,8 @@ pbus.add_term(p, 'hsv1', 'saturationmult', tag='accent', term="(1-...)**6*1.8")
 
 ### 設計のポイント（base + gain）
 
-各パラメータは `base + op('aud_lag')['band']*gain` の式で駆動する。無音時は解析値が
+各パラメータは `base + op('aud_out')['band']*gain` の式で駆動する（`aud_out` は `aud_lag`
+を通すだけの出口で、慣性の拡張がここに差し込む）。無音時は解析値が
 0 に収束して base 値そのまま＝元の静的パッチと同じ絵になる。マイク未接続でも壊れず、
 鳴らすと動く。オーディオを「置換」でなく「加算」にすることでライブでの堅牢性を確保。
 
@@ -315,6 +316,70 @@ BPM同期（手打ちテンポ）を一歩進め、Ableton Live などの実 DAW
 - **フィードバック opacity は極小 gain**。小節頭で構造の"尾"を伸ばせるが、大きくすると
   0/1 に張り付いて発散する（Emboss/非線形ブレンドをループに置くのと同じ問題）。
   よって opacity のアクセントだけ `gain=0.003` に抑える（無音時ピークでも 0.988 < 1.0）。
+
+## 拡張: 音への反応に慣性（Liquid Audio）
+
+音楽反応の平滑化（1段の Lag）のあとに、帯域ごとに定数の違う**ばね**（Spring CHOP）を
+通してから映像に渡す。低域は重くゆっくり動いて少し行き過ぎて戻り、高域は軽く速く動く。
+音が止まっても絵がすっと止まらず、余韻が残る。
+
+1. [scripts/build_organic_patterns.py](scripts/build_organic_patterns.py) +
+   [scripts/build_audio_reactive.py](scripts/build_audio_reactive.py) を実行済みで
+2. 続けて [scripts/build_liquid_audio.py](scripts/build_liquid_audio.py) を実行
+3. 比較: `op('/project1/liq_switch').par.index = 0`（慣性なし）/ `1`（慣性あり）
+
+| 帯域 | ばね k（質量1） | 減衰 c | 減衰比 | 90%到達（実測） | 行き過ぎ（実測） |
+|---|---|---|---|---|---|
+| low | 40 | 7.0 | 0.55 | 0.33 秒 | 11.3% |
+| mid | 150 | 14.7 | 0.60 | 0.17 秒 | 7.3% |
+| high | 900 | 42 | 0.70 | 0.07 秒 | 0.1% |
+| rms | （ばねなし） | — | — | 即時 | 0% |
+
+（実測は 0/1 の矩形波を経路に流して記録したステップ応答。）
+
+### 設計のポイント（2次の連続時間系 + 差し替え口）
+
+- **Lag は1次、ばねは2次**。Lag は目標へ指数的に近づくだけだが、ばね
+  `m·x'' + c·x' + k·x = k·u` は慣性を持ち、減衰比 ζ < 1 だと行き過ぎて戻る。
+  固有振動数 `sqrt(k/m)` を帯域ごとに変えて、重さの違いを出している。
+- **rms はばねに通さない**。rms は `level1.opacity`（フィードバックの残留率）を動かす。
+  行き過ぎで残留率が跳ねるとループが暴走しかねないため、素通しにしている。
+- **差し替え口 `aud_out`**。映像側の項は `aud_lag` ではなく `aud_out`（Null）を読む。
+  この拡張は `aud_out` の入力を `liq_switch` に付け替えるだけで、音楽反応側の式には
+  触らない。`build_audio_reactive.py` を再実行すると直結に戻るので、この拡張も再実行する。
+- **オンセット検出は速いまま**。シーン切替は `aud_lag` を直接読むので、ばねで立ち上がりが
+  鈍ってキックを取り逃すことはない。
+
+## 拡張: 細部の層（2層目のフィードバック / Detail Layer）
+
+ベースのループ（640×360）が作る大理石の**大きな流れ**に、1280×720 のもう1本の
+ループで作る**細かい膜状の線**を重ねる。流れに沿って、等高線のような細い線が何重にも走る。
+
+1. [scripts/build_organic_patterns.py](scripts/build_organic_patterns.py)（音で揺らすなら
+   [scripts/build_audio_reactive.py](scripts/build_audio_reactive.py) も）を実行済みで
+2. 続けて [scripts/build_detail_layer.py](scripts/build_detail_layer.py) を実行
+3. 細部の濃さは高域（ハイハット・シンバル）で揺れる
+
+| 合成前（disp_comp） | 合成後（detail_mix） | 足している層（det_view） |
+|---|---|---|
+| ![before](reference/detail_before.png) | ![after](reference/detail_after.png) | ![layer](reference/detail_layer_only.png) |
+
+（3枚とも同じフレームから書き出したもの。）
+
+### 設計のポイント（ループに触らず、表示側で重ねる）
+
+- **ベースのループには手を入れない**。1本目のループの出力 `null1` を拡大して読むだけで、
+  合成は表示側の `disp_comp` と `hsv1` の間（`detail_mix`、スクリーン合成）で行う。
+  ループ内に手を入れると 0/1 に張り付いて崩壊しうる（Emboss と同じ問題）。
+- **構成は1本目と同じで、スケールだけ変える**。差分合成 → ドメインワープ → シャープ →
+  減衰。ノイズの周期を 2.4 → 0.45、解像度を2倍、残留を 0.99 → 0.94（尾が短い）にした。
+  差分の相手を「拡大した大きな流れ」にしているので、細部が流れの形に沿って出る。
+- **2本目のループ自体はぼやけている**が、輪郭抽出（`det_edge`）で細い線だけを取り出して
+  重ねるので問題ない。
+- **濃さは音で揺れる**。`det_view.opacity = 0.35 + 高域×2.5`（0〜1にクランプ、
+  パラメータバスの tag='detail'）。もっと強く見せたいときは `build_detail_layer.py` の
+  base（0.35）を上げる。
+- **外すときは `build_organic_patterns.py` から組み直す**（`hsv1` の入力が `disp_comp` に戻る）。
 
 ## 作例の書き出し（Recorder）
 
