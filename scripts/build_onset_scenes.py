@@ -20,7 +20,11 @@ build_onset_scenes.py
   そこで上下2閾値を使う:
     - armed 状態で level > HI → 発火（シーン+1）、armed=0 に落とす
     - armed=0 で level < LO   → 再武装（armed=1）
-  これで「1キック=1回だけシーン前進」を保証する。状態は Execute DAT の
+  これで「1キック=1回だけシーン前進」を保証する。
+  HI/LO は生の値ではなく直近30秒の低域の中での順位で判定する（ONSET_RANK_HI/LO）。
+  生の値のしきい値は音圧の小さい曲で一度も超えず、シーンが止まるため。
+
+  状態は Execute DAT の
   onFrameStart で前フレームと比較し、armed フラグは DAT storage に持つ
   （CHOP に置くとクック順序で競合しうるため、Python 側の永続変数が確実）。
 
@@ -56,8 +60,33 @@ import td_param_bus as pbus, td_build as tdb
 importlib.reload(pbus); importlib.reload(tdb)
 
 PARENT = '/project1'
-ONSET_HI = 0.18   # 発火閾値（上）
-ONSET_LO = 0.08   # 再武装閾値（下）
+ONSET_HI = 0.18   # 発火閾値（上）。生の値。テスト注入と立ち上がりの約2秒だけで使う
+ONSET_LO = 0.08   # 再武装閾値（下）。同上
+
+# 順位のしきい値（直近30秒の低域の中での順位）。生の値の HI/LO は1曲で決めた値なので、
+# 音圧の小さい曲ではキックが一度も HI を超えずシーンが止まる（2026-10-12 TD実機: 同じ曲を
+# 60秒流すと、生の値では音量1で48回・1/4で0回。順位なら46回・41回）。
+# 0.85/0.6 は、記録した低域の値でしきい値を振り、音量1で生の値と同じくらいの回数に
+# なるよう選んだ（シミュレーションで44回）。LO は 0.4〜0.7 で回数がほぼ変わらない
+# （キックの間で低域はすぐ下がる）。
+ONSET_RANK_HI = 0.85
+ONSET_RANK_LO = 0.60
+ONSET_RANK = 1    # 1=順位で判定 / 0=生の値（従来）。scene_state の storage 'onset_rank' で切替
+LOW_REF = 0.268   # 低域の較正値（p95）。無音判定（この1%未満）と下の最低ラインに使う
+
+# 順位で発火するときの最低ライン（生の値）。順位は「直近30秒の上位15%」を必ずどこかで
+# 拾うので、キックの無い静かな区間でも低域のわずかな揺れでシーンが進んでしまう。
+# 生の値がこれを超えていないときは発火しない（再武装はさせる）。
+# 2026-10-12 TD実機で、ドラムの無い keys のステムだけを60秒流すと、生の値では0回、
+# 順位だけでは10回シーンが進んだ。最低ラインと回数（keys / 本曲の音量1 / 音量1/4。
+# 0.05 と 0.2 はTD実機、他は記録した低域の値でのシミュレーション）:
+#   0（なし）: 10 / 46 / 41    0.05×ref: 10 / 46 / 41    0.15×ref: 4 / 46 / 41
+#   0.2×ref  :  0 / 46 / 33    0.25×ref:  0 / 46 / 27
+# キックの無い区間を止めるのを優先して 0.2（=0.054）にした。代わりに、音量1/4のように
+# 極端に小さい曲ではブレイク区間の弱いキックを取りこぼす（41→33回）。keys の低域の最大
+# 0.051 と、音量1/4の曲のキック（p95 0.082、ブレイクでは0.038）が重なっていて、生の値の
+# 最低ラインでは両方を完全には分けられない。
+ONSET_MIN_RATIO = 0.2
 
 # 現在シーンの hue_base を scene_state 経由で毎フレーム読む定常項。
 # これをパラメータバスに 'scene_hue' タグで一度だけ登録すれば、シーンが進んで
@@ -85,19 +114,47 @@ ONSET_CODE = r'''# onset_exec: 低域キックのオンセットでシーンを�
 # difference 固定。vividlight 等の非線形ブレンドをループに置くとフィードバックが
 # 0/1 に張り付き崩壊するため（Emboss がループを凍らせるのと同じアトラクタ問題）。
 
+#
+# しきい値は生の値ではなく「直近30秒の低域の中での順位」で判定する（RankNorm は
+# このDATの先頭に埋め込んだ td_rank_norm.py）。曲の音圧に依存せず、その曲の中で
+# 相対的に大きい低域だけを拾う。立ち上がり（履歴が約2秒たまるまで）とテスト注入
+# （__onsettest）のときは生の値の HI/LO に落とす。
+
+import td
+
 ONSET_SOURCE = "aud_lag"
 HI = {HI}
 LO = {LO}
+RANK_HI = {RANK_HI}
+RANK_LO = {RANK_LO}
+LOW_REF = {LOW_REF}
+MIN_LEVEL = {MIN_LEVEL}              # 順位で発火するときの生の値の最低ライン
+_NORM = [None]                       # 履歴（DAT のテキストを変えると作り直される）
 
 def _kick_level():
+    """(低域の値, テスト注入か) を返す。"""
     p = me.parent()                  # 絶対パスにせずDATが置かれたCOMPを基点にする
     t = p.op('__onsettest')          # テスト用オーバーライドがあれば優先
     if t is not None:
-        return float(t['low'])
+        return float(t['low']), True
     a = p.op(ONSET_SOURCE)
     if a is None:
-        return 0.0
-    return float(a['low'])
+        return 0.0, False
+    return float(a['low']), False
+
+def _level_and_thresholds(ss):
+    """判定に使う (値, HI, LO)。順位が使えるときは順位としきい値を返す。"""
+    lvl, test = _kick_level()
+    if test or not ss.fetch('onset_rank', 1):
+        return lvl, HI, LO
+    if _NORM[0] is None:
+        _NORM[0] = RankNorm(LOW_REF)
+    r = _NORM[0].observe(lvl, td.absTime.seconds)
+    if r is None:                    # 立ち上がり: 履歴がたまるまで生の値で判定
+        return lvl, HI, LO
+    if lvl <= MIN_LEVEL:             # 静かな区間: 順位が高くても発火させない（再武装はさせる）
+        r = min(r, RANK_LO)
+    return r, RANK_HI, RANK_LO
 
 def _apply_scene(idx):
     p = me.parent()                  # 相対参照: tox をどこに置いても壊れない
@@ -111,17 +168,29 @@ def _apply_scene(idx):
 def onFrameStart(frame):
     p = me.parent()                  # 相対参照: 入れ子/別配置でも scene_state を辿れる
     ss = p.op('scene_state')
-    lvl = _kick_level()
+    lvl, hi, lo = _level_and_thresholds(ss)
     armed = ss.fetch('armed', 1)
-    if armed and lvl > HI:
+    if armed and lvl > hi:
         idx = int(ss['scene']) + 1
         ss.par.value0 = idx
         _apply_scene(idx)
         ss.store('armed', 0)
-    elif (not armed) and lvl < LO:
+    elif (not armed) and lvl < lo:
         ss.store('armed', 1)         # LO まで戻ったら再武装
     return
 '''
+
+
+def _onset_src():
+    """td_rank_norm.py の本文 + 状態機械。しきい値を埋め込む。"""
+    with open(os.path.join(_SD, 'td_rank_norm.py'), encoding='utf-8') as f:
+        core = f.read()
+    code = ONSET_CODE
+    for k, v in (('{HI}', ONSET_HI), ('{LO}', ONSET_LO), ('{RANK_HI}', ONSET_RANK_HI),
+                 ('{RANK_LO}', ONSET_RANK_LO), ('{LOW_REF}', LOW_REF),
+                 ('{MIN_LEVEL}', round(LOW_REF * ONSET_MIN_RATIO, 4))):
+        code = code.replace(k, repr(v))
+    return core + '\n\n' + code
 
 
 def build_onset():
@@ -134,6 +203,7 @@ def build_onset():
                     pars={'name0': 'scene', 'value0': 0,
                           **{f'name{i}': '' for i in range(1, 8)}})
     ss.store('armed', 1)
+    ss.store('onset_rank', ONSET_RANK)
 
     # --- scene_table: シーン定義（表示側ブレンド + hue 基準） ---
     st = tdb.ensure(p, 'scene_table', 'tableDAT', -430, -680)
@@ -145,7 +215,7 @@ def build_onset():
     # --- onset_exec: オンセット検出の状態機械（Execute DAT）。framestart=毎フレーム
     #     onFrameStart を呼ぶ ---
     ed = tdb.ensure(p, 'onset_exec', 'executeDAT', -260, -680,
-                    text=ONSET_CODE.replace('{HI}', repr(ONSET_HI)).replace('{LO}', repr(ONSET_LO)),
+                    text=_onset_src(),
                     pars={'active': True, 'framestart': True})
 
     # 初期状態: scene 0（add）。表示側ブレンドだけ設定する。

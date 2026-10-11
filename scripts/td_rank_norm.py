@@ -29,6 +29,9 @@ edge 強度が 30 を超え、opacity は上限に張り付く。ref 倍で返�
   「直近30秒」に合わせた。サンプリングは SAMPLE_HZ に間引き、fps に依存させない。
 - 無音（floor 未満）は 0 を返し、履歴にも入れない。入れると無音の区間で履歴が
   ほぼ同じ小さい値で埋まり、ノイズの揺れが 0〜ref の全幅に引き伸ばされる。
+- 履歴は件数ではなく時刻で古いものを捨てる（WINDOW_SEC より前のサンプルは無音中も
+  消える）。件数だけで区切ると、無音を挟んで次の曲に移ったとき前の曲のサンプルが
+  残り、小さい曲が大きい曲と比べられて最大30秒ほど反応しなくなる（PR #10 のレビュー）。
 - 履歴が MIN_SAMPLES に満たない立ち上がりは生の値をそのまま返す（従来と同じ絵）。
 """
 
@@ -54,20 +57,36 @@ class RankNorm:
         self.period = 1.0 / sample_hz
         self.min_samples = min_samples
         self.p_lo, self.p_hi = p_lo, p_hi
+        self.window = float(window_sec)
         maxlen = max(1, int(round(window_sec * sample_hz)))
-        self._order = deque(maxlen=maxlen)   # 入った順（古いものを捨てるため）
+        self._order = deque(maxlen=maxlen)   # (時刻, 値) を入った順に（古いものを捨てるため）
         self._sorted = []                    # 同じ値を昇順で（順位を二分探索で引く）
         self._next_t = None
+        self._last_t = None
 
     def __len__(self):
         return len(self._sorted)
 
-    def _push(self, v):
+    def _drop_oldest(self):
+        _, old = self._order.popleft()
+        del self._sorted[bisect_left(self._sorted, old)]
+
+    def _push(self, v, t):
         if len(self._order) == self._order.maxlen:
-            old = self._order[0]
-            del self._sorted[bisect_left(self._sorted, old)]
-        self._order.append(v)
+            self._drop_oldest()
+        self._order.append((t, v))
         insort(self._sorted, v)
+
+    def _expire(self, t):
+        """時刻 t から見て窓より古いサンプルを捨てる。時計が戻ったら履歴を空にする
+        （残った時刻が未来になり、いつまでも捨てられなくなるため）。"""
+        if self._last_t is not None and t < self._last_t - 1.0:
+            self._order.clear()
+            self._sorted = []
+            self._next_t = None
+        self._last_t = t
+        while self._order and self._order[0][0] < t - self.window:
+            self._drop_oldest()
 
     def rank(self, v):
         """履歴の中で v より小さいものの割合（同値は半分）。履歴が空なら 0。"""
@@ -78,9 +97,12 @@ class RankNorm:
         hi = bisect_right(self._sorted, v)
         return (lo + 0.5 * (hi - lo)) / n
 
-    def update(self, v, t):
-        """現在値 v（時刻 t 秒）を受け取り、正規化後の値を返す。"""
+    def observe(self, v, t):
+        """現在値 v（時刻 t 秒）を履歴に積み、履歴の中での順位（0〜1）を返す。
+        無音・NaN/inf は 0.0。履歴が min_samples に満たない立ち上がりは None
+        （呼び出し側で生の値の判定に落とす）。オンセット検出はこれを直接使う。"""
         v = float(v)
+        self._expire(t)               # 無音や NaN のフレームでも古いサンプルは捨てる
         # NaN/inf は 0 にして履歴にも入れない。NaN は大小比較がすべて偽なので、
         # 1つ入ると bisect が壊れ、以後ずっと順位 0.5（=ref/2）を返し続ける
         # （2026-10-11 実機で、上流の Lag が NaN を出したときに起きた）
@@ -89,13 +111,21 @@ class RankNorm:
         if self._next_t is None or t < self._next_t - 1.0:
             self._next_t = t          # 初回か、時計が戻った（巻き戻し等）ときは今から数え直す
         if t >= self._next_t:
-            self._push(v)
+            self._push(v, t)
             # t + period ではなく予定時刻に足す。fps が period を割り切らないとき
             # （30fps と 20Hz）に間隔が2フレームへ丸まり、実効頻度が落ちるのを防ぐ
             self._next_t += self.period
             if self._next_t < t:      # 長く止まっていた後は追いつこうとまとめて積まない
                 self._next_t = t + self.period
         if len(self._sorted) < self.min_samples:
-            return v
-        r = (self.rank(v) - self.p_lo) / (self.p_hi - self.p_lo)
+            return None
+        return self.rank(v)
+
+    def update(self, v, t):
+        """現在値 v（時刻 t 秒）を受け取り、正規化後の値（0〜ref）を返す。
+        立ち上がりは生の値をそのまま返す。"""
+        r = self.observe(v, t)
+        if r is None:
+            return float(v)
+        r = (r - self.p_lo) / (self.p_hi - self.p_lo)
         return min(1.0, max(0.0, r)) * self.ref

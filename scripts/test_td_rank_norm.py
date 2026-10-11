@@ -10,6 +10,7 @@ import importlib
 import os
 import random
 import sys
+from collections import deque
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import td_rank_norm as rn
@@ -105,6 +106,57 @@ def case_nan_ignored():
     return f'NaN/inf→{bad}、履歴{n}件のまま、その後も p90以上=ref'
 
 
+def case_observe_rank():
+    """observe は立ち上がり中 None、その後は生の順位（0〜1、p10/p90 の写しなし）。
+    オンセット検出が順位そのものでしきい値判定するために使う。"""
+    norm = rn.RankNorm(REF)
+    assert norm.observe(0.01, 0.0) is None
+    vals = [0.002 + 0.0001 * (i % 200) for i in range(int(FPS * 20))]
+    t, _ = feed(norm, vals)
+    top = norm.observe(0.0219, t)
+    mid = norm.observe(0.012, t)
+    silent = norm.observe(REF * 0.005, t)
+    assert top > 0.97, top
+    assert abs(mid - 0.5) < 0.05, mid
+    assert silent == 0.0, silent
+    return f'立ち上がり None → 最大付近 {top:.3f} / 中央 {mid:.3f} / 無音 {silent}'
+
+
+def case_expire_after_silence():
+    """大きい曲 → 無音40秒 → 小さい曲。無音の間に前の曲の履歴が時刻で消え、
+    小さい曲は立ち上がり後すぐに自分の中の順位で反応する（PR #10 のレビュー指摘）。"""
+    norm = rn.RankNorm(REF)
+    loud = [0.03 + 0.0002 * (i % 50) for i in range(int(FPS * 40))]     # 0.03〜0.0398
+    t, _ = feed(norm, loud)
+    t, _ = feed(norm, [0.0] * int(FPS * 40), t0=t)                       # 無音（floor 未満）
+    after_silence = len(norm)
+    quiet = [0.004 + 0.0002 * (i % 50) for i in range(int(FPS * 5))]    # 0.004〜0.0138
+    t, _ = feed(norm, quiet, t0=t)
+    top = norm.update(0.0138, t)
+    assert after_silence == 0, after_silence
+    assert abs(top - REF) < 1e-12, top
+    # 比較: 件数だけで区切る旧実装相当（窓を無限に長くする）だと前の曲が残り、反応しない
+    old = rn.RankNorm(REF, window_sec=1e9)
+    old._order = deque(maxlen=int(rn.WINDOW_SEC * rn.SAMPLE_HZ))
+    t2, _ = feed(old, loud)
+    t2, _ = feed(old, [0.0] * int(FPS * 40), t0=t2)
+    t2, _ = feed(old, quiet, t0=t2)
+    stale = old.update(0.0138, t2)
+    assert stale < REF * 0.1, stale          # 前の曲600件の中では下位に沈む
+    return (f'無音40秒後の履歴 {after_silence}件 → 小さい曲の5秒後に最大音={top:.4f}(=ref)'
+            f'（件数だけで区切ると {stale:.4f}）')
+
+
+def case_clock_reset():
+    """時計が1秒以上戻ったら履歴を空にする（未来の時刻が残って捨てられなくなるのを防ぐ）。"""
+    norm = rn.RankNorm(REF)
+    t, _ = feed(norm, [0.01] * int(FPS * 10), t0=100.0)
+    before = len(norm)
+    norm.observe(0.01, 0.0)
+    assert before > 0 and len(norm) <= 1, (before, len(norm))
+    return f'時刻 110→0 で履歴 {before}件 → {len(norm)}件'
+
+
 def case_fps_independent():
     """30fps と 120fps で流しても履歴の件数は同じ（時間で間引く）。"""
     counts = []
@@ -122,6 +174,7 @@ def case_fps_independent():
 if __name__ == '__main__':
     cases = [case_scale_invariant, case_percentile_mapping, case_silence_floor,
              case_warmup_passthrough, case_window_cap_and_adapt, case_nan_ignored,
+             case_observe_rank, case_expire_after_silence, case_clock_reset,
              case_fps_independent]
     for c in cases:
         print(f'[ok] {c.__name__}: {c()}')
