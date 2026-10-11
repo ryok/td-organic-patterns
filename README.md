@@ -42,7 +42,7 @@ TouchDesigner 標準ノードで再構築したもの。
 
 - [tox/organic_patterns.tox](tox/organic_patterns.tox) — ベースのカラー版のみ（最小構成）
 - [tox/organic_patterns_full.tox](tox/organic_patterns_full.tox) — 音楽反応・BPM同期・
-  オンセット・MIDI/OSC・Ableton Link・小節頭アクセント・慣性・細部の層・時間の積層・録画まで
+  オンセット・MIDI/OSC・Ableton Link・小節頭アクセント・慣性・順位での正規化・細部の層・時間の積層・録画まで
   含む完全版スナップショット
 
 （.tox はバイナリのため差分は追えない。パラメータ調整の履歴は A 側で管理する）

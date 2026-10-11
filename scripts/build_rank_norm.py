@@ -130,6 +130,11 @@ def build_rank_norm():
     # callbacks は兄弟名で指定（tox を別の場所に置いても解決される。'./' 付きは None になる）
     rank = tdb.ensure(p, 'aud_rank', 'scriptCHOP', X0 + 160, Y0 - 100, inputs=[up],
                       pars={'callbacks': 'aud_rank_callbacks'})
+    # Script CHOP は作った瞬間に既定の callbacks DAT（aud_rank_callbacks1）を自分に
+    # ドッキングして作る。使わないうえ完全版 tox に混ざるので消す（2026-10-12 書き出し前に発覚）
+    for d in list(rank.docked):
+        if d.name != 'aud_rank_callbacks':
+            d.destroy()
     sw = tdb.ensure(p, 'rank_switch', 'switchCHOP', X0 + 320, Y0,
                     inputs=[up, rank], pars={'index': RANK_ON})
 
