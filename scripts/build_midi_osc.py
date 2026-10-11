@@ -54,8 +54,9 @@ import importlib, os, sys
 try:
     _SD = os.path.dirname(os.path.abspath(__file__))
 except NameError:                                   # Textport へのペースト時
-    _SD = os.environ.get('TD_ORGANIC_SCRIPTS',
-                         '/Users/ryookada/work/td-organic-patterns/scripts')
+    # 環境変数が無ければ .toe のある project/ の隣の scripts/ を使う（リポジトリの配置）
+    _SD = (os.environ.get('TD_ORGANIC_SCRIPTS')
+           or os.path.normpath(os.path.join(td.project.folder, '..', 'scripts')))
 if _SD not in sys.path:
     sys.path.insert(0, _SD)
 import td_param_bus as pbus, td_build as tdb

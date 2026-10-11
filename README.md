@@ -89,7 +89,7 @@ pbus.add_term(p, 'hsv1', 'saturationmult', tag='accent', term="(1-...)**6*1.8")
 
 > Textport 運用では各 build スクリプト冒頭のローダが `td_param_bus.py`（式の合成）と
 > `td_build.py`（ノード構築）を `sys.path` 経由で読み込む（パスは `__file__`、無ければ
-> 環境変数 `TD_ORGANIC_SCRIPTS` かリポジトリ既定パス）。
+> 環境変数 `TD_ORGANIC_SCRIPTS`、それも無ければ `.toe` のある `project/` の隣の `scripts/`）。
 >
 > `td_build.py` はノード作成の定型（同名を消す → 作る → 座標 → 解像度・パラメータ →
 > 入力を繋ぐ）と前提ノードの確認をまとめたもの。`ensure(p, 'ctrl', 'nullCHOP', x, y,
