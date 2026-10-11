@@ -129,3 +129,50 @@ class RankNorm:
             return float(v)
         r = (r - self.p_lo) / (self.p_hi - self.p_lo)
         return min(1.0, max(0.0, r)) * self.ref
+
+
+class OnsetDetector:
+    """オンセット検出（低域キックでシーンを進める）の判定。TD 非依存。
+    build_onset_scenes.py の onset_exec がこのファイルごと埋め込んで使い、
+    test_td_rank_norm.py が記録なしで回数を検証する。
+
+    判定はシュミットトリガ（上下2つのしきい値）: armed のとき hi を上抜けたら発火して
+    armed=0、armed=0 のとき lo を下回ったら再武装。1キックで1回だけ発火する。
+    値としきい値は次のどちらか:
+      - 順位: 直近30秒の低域の中での順位と rank_hi/rank_lo（既定）
+      - 生の値: 低域の値そのものと hi/lo。立ち上がり（履歴が約2秒たまるまで）・
+        テスト注入・順位モードを切ったときに使う
+    順位で発火するときは、生の値が min_level を超えている必要もある。順位は直近30秒の
+    上位15%を必ずどこかで拾うので、キックの無い静かな区間の揺れで発火しないようにする。
+    """
+
+    def __init__(self, hi, lo, rank_hi, rank_lo, low_ref, min_level):
+        self.hi, self.lo = hi, lo
+        self.rank_hi, self.rank_lo = rank_hi, rank_lo
+        self.min_level = min_level
+        self.norm = RankNorm(low_ref)
+
+    def thresholds(self, lvl, t, test=False, rank_on=True):
+        """判定に使う (値, 発火しきい値, 再武装しきい値) を返す。"""
+        if test or not rank_on:
+            return lvl, self.hi, self.lo
+        r = self.norm.observe(lvl, t)
+        if r is None:                    # 立ち上がり: 履歴がたまるまで生の値で判定
+            return lvl, self.hi, self.lo
+        if lvl <= self.min_level:        # 静かな区間: 順位が高くても発火させない（再武装はさせる）
+            r = min(r, self.rank_lo)
+        return r, self.rank_hi, self.rank_lo
+
+    @staticmethod
+    def step(armed, x, hi, lo):
+        """シュミットトリガの1ステップ。(発火したか, 次の armed) を返す。"""
+        if armed and x > hi:
+            return True, 0
+        if (not armed) and x < lo:
+            return False, 1
+        return False, armed
+
+    def feed(self, lvl, t, armed, test=False, rank_on=True):
+        """1フレーム分。(発火したか, 次の armed) を返す。"""
+        x, hi, lo = self.thresholds(lvl, t, test, rank_on)
+        return self.step(armed, x, hi, lo)

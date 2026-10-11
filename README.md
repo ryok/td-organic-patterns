@@ -239,6 +239,11 @@ pbus.add_term(p, 'hsv1', 'saturationmult', tag='accent', term="(1-...)**6*1.8")
   keys の低域の最大（0.051）と、音量1/4の曲のブレイク区間のキック（p95 0.038）が重なっていて、
   生の値の線では両方を完全には分けられない。キックの無い区間を止めるほうを優先して 0.2 にした
   （`ONSET_MIN_RATIO`）。極端に小さい曲では弱いキックを取りこぼす。
+- **判定は TD 非依存のクラス `OnsetDetector`**（[scripts/td_rank_norm.py](scripts/td_rank_norm.py)）。
+  順位か生の値かの選択・最低ライン・シュミットトリガをここにまとめ、`onset_exec` は低域の
+  読み取りとシーンの書き換えだけを行う。`python3 scripts/test_td_rank_norm.py` で、合成した
+  キック列を使って「1キック1回」「音量1/4でも拾う」「キックの無い揺れでは発火しない」
+  「テスト注入で即発火」「NaN でも再武装」を確かめられる。
 - **状態は Execute DAT の `onFrameStart` で保持**。シーンindexは Constant CHOP、
   再武装フラグ `armed` は DAT storage（`store/fetch`）に置く。CHOP に置くとクック
   順序で競合しうるが、Python 側の永続変数なら決定的に読み書きできる。
@@ -442,6 +447,10 @@ r/generative の WebGL 流体作品（打音の大きさを直近64打の中の�
   `python3 scripts/test_td_rank_norm.py`。
 - 🚨 **実行順**: `build_liquid_audio.py` と `build_audio_reactive.py` は `aud_out` の入力を
   付け替えるので、後から流すとこの拡張が外れる。どちらかを再実行したら、これも再実行する。
+- 🚨 **`td_rank_norm.py` を直したら2つとも再実行する**: 順位の計算は、ビルド時に
+  `aud_rank_callbacks`（この拡張）と `onset_exec`（Onset Scenes）の2か所へ本文ごと埋め込む。
+  片方だけ再実行すると、もう片方は古いコードのまま動く。`build_rank_norm.py` と
+  `build_onset_scenes.py` を両方流す（完全版 tox もその後で書き出し直す）。
 - オンセット検出は `aud_lag` を直接読むので、この拡張（`aud_out` の手前）の影響は
   受けない。しきい値は同じ td_rank_norm.py を使って別に順位で判定している（Onset Scenes の節）。
 

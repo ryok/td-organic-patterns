@@ -171,11 +171,100 @@ def case_fps_independent():
     return f'10秒で 30fps={counts[0]}件 / 120fps={counts[1]}件'
 
 
+# --- オンセット検出（OnsetDetector）。しきい値は build_onset_scenes.py の値をそのまま使う ---
+import math
+import types
+sys.modules.setdefault('td', types.ModuleType('td'))   # build_*.py の import td を通すだけ
+import build_onset_scenes as bo
+
+
+def make_detector():
+    return rn.OnsetDetector(bo.ONSET_HI, bo.ONSET_LO, bo.ONSET_RANK_HI, bo.ONSET_RANK_LO,
+                            bo.LOW_REF, round(bo.LOW_REF * bo.ONSET_MIN_RATIO, 4))
+
+
+def kicks(peak, sec=30.0, every=0.5, seed=0):
+    """every 秒ごとのキック（指数減衰）＋小さな揺れ。低域の値を 60fps で返す。"""
+    random.seed(seed)
+    out = []
+    for i in range(int(FPS * sec)):
+        t = i / FPS
+        ph = t % every
+        out.append(peak * (math.exp(-ph / 0.08) + 0.05 * random.random()))
+    return out
+
+
+def count_fires(det, vals, test=False, rank_on=True):
+    armed, n = 1, 0
+    for i, v in enumerate(vals):
+        fire, armed = det.feed(v, i / FPS, armed, test=test, rank_on=rank_on)
+        n += fire
+    return n
+
+
+def case_onset_one_fire_per_kick():
+    """キック60回（30秒）で、順位でも生の値でも発火はちょうど60回（多重発火しない）。"""
+    vals = kicks(0.3)
+    a = count_fires(make_detector(), vals)
+    b = count_fires(make_detector(), vals, rank_on=False)
+    assert a == 60 and b == 60, (a, b)
+    return f'キック60回 → 順位 {a}回 / 生の値 {b}回'
+
+
+def case_onset_quiet_song():
+    """音量1/4の曲: 生の値のしきい値では0回、順位なら立ち上がり以降のキックをすべて拾う。"""
+    vals = kicks(0.3 * 0.25)
+    raw = count_fires(make_detector(), vals, rank_on=False)
+    rank = count_fires(make_detector(), vals)
+    warm = int(rn.MIN_SAMPLES / rn.SAMPLE_HZ / 0.5)          # 立ち上がり約2秒ぶんのキック
+    assert raw == 0, raw
+    assert 60 - warm - 1 <= rank <= 60, rank
+    return f'音量1/4 → 生の値 {raw}回 / 順位 {rank}回（立ち上がりの約{warm}回は生の値の判定）'
+
+
+def case_onset_no_kick_section():
+    """キックの無い静かな揺れ（最大0.05、keys のステム相当）は、最低ラインで発火しない。
+    最低ラインを外すと順位だけで発火してしまうことも確かめる。"""
+    random.seed(3)
+    vals, x = [], 0.02
+    for _ in range(int(FPS * 60)):
+        x = min(0.05, max(0.005, x + random.uniform(-0.004, 0.004)))
+        vals.append(x)
+    gated = count_fires(make_detector(), vals)
+    det = make_detector()
+    det.min_level = 0.0
+    ungated = count_fires(det, vals)
+    assert gated == 0, gated
+    assert ungated > 0, ungated
+    return f'キック無し60秒 → 最低ラインあり {gated}回 / なし {ungated}回'
+
+
+def case_onset_test_injection():
+    """テスト注入（__onsettest）は履歴が空でも生の値で即発火する。"""
+    det = make_detector()
+    fire, armed = det.feed(0.5, 0.0, 1, test=True)
+    assert fire and armed == 0, (fire, armed)
+    return 'low=0.5 の注入で1フレーム目に発火'
+
+
+def case_onset_nan_rearms():
+    """上流が NaN を出しても、順位の経路では0扱いで再武装できる（生の値の経路は止まる）。"""
+    det = make_detector()
+    count_fires(det, kicks(0.3, sec=5))                       # 履歴を作る
+    _, armed = det.feed(0.5, 5.0, 1)                          # 発火して armed=0
+    _, armed = det.feed(float('nan'), 5.1, armed)
+    raw_armed = rn.OnsetDetector.step(0, float('nan'), bo.ONSET_HI, bo.ONSET_LO)[1]
+    assert armed == 1, armed
+    assert raw_armed == 0, raw_armed
+    return f'NaN で 順位の経路は再武装（armed={armed}）/ 生の値の経路は止まったまま（armed={raw_armed}）'
+
+
 if __name__ == '__main__':
     cases = [case_scale_invariant, case_percentile_mapping, case_silence_floor,
              case_warmup_passthrough, case_window_cap_and_adapt, case_nan_ignored,
              case_observe_rank, case_expire_after_silence, case_clock_reset,
-             case_fps_independent]
+             case_fps_independent, case_onset_one_fire_per_kick, case_onset_quiet_song,
+             case_onset_no_kick_section, case_onset_test_injection, case_onset_nan_rearms]
     for c in cases:
         print(f'[ok] {c.__name__}: {c()}')
     print(f'all {len(cases)} cases passed')

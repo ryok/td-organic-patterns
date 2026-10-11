@@ -115,10 +115,9 @@ ONSET_CODE = r'''# onset_exec: 低域キックのオンセットでシーンを�
 # 0/1 に張り付き崩壊するため（Emboss がループを凍らせるのと同じアトラクタ問題）。
 
 #
-# しきい値は生の値ではなく「直近30秒の低域の中での順位」で判定する（RankNorm は
-# このDATの先頭に埋め込んだ td_rank_norm.py）。曲の音圧に依存せず、その曲の中で
-# 相対的に大きい低域だけを拾う。立ち上がり（履歴が約2秒たまるまで）とテスト注入
-# （__onsettest）のときは生の値の HI/LO に落とす。
+# 判定そのもの（順位/生の値の選択・最低ライン・シュミットトリガ）は、このDATの先頭に
+# 埋め込んだ td_rank_norm.py の OnsetDetector にある（TD 無しで単体テストできるように
+# 切り出した）。ここは TD からの入出力（低域の読み取り・scene_state・disp_comp）だけ。
 
 import td
 
@@ -129,7 +128,7 @@ RANK_HI = {RANK_HI}
 RANK_LO = {RANK_LO}
 LOW_REF = {LOW_REF}
 MIN_LEVEL = {MIN_LEVEL}              # 順位で発火するときの生の値の最低ライン
-_NORM = [None]                       # 履歴（DAT のテキストを変えると作り直される）
+_DET = [None]                        # 判定器と履歴（DAT のテキストを変えると作り直される）
 
 def _kick_level():
     """(低域の値, テスト注入か) を返す。"""
@@ -142,19 +141,10 @@ def _kick_level():
         return 0.0, False
     return float(a['low']), False
 
-def _level_and_thresholds(ss):
-    """判定に使う (値, HI, LO)。順位が使えるときは順位としきい値を返す。"""
-    lvl, test = _kick_level()
-    if test or not ss.fetch('onset_rank', 1):
-        return lvl, HI, LO
-    if _NORM[0] is None:
-        _NORM[0] = RankNorm(LOW_REF)
-    r = _NORM[0].observe(lvl, td.absTime.seconds)
-    if r is None:                    # 立ち上がり: 履歴がたまるまで生の値で判定
-        return lvl, HI, LO
-    if lvl <= MIN_LEVEL:             # 静かな区間: 順位が高くても発火させない（再武装はさせる）
-        r = min(r, RANK_LO)
-    return r, RANK_HI, RANK_LO
+def _detector():
+    if _DET[0] is None:
+        _DET[0] = OnsetDetector(HI, LO, RANK_HI, RANK_LO, LOW_REF, MIN_LEVEL)
+    return _DET[0]
 
 def _apply_scene(idx):
     p = me.parent()                  # 相対参照: tox をどこに置いても壊れない
@@ -168,15 +158,16 @@ def _apply_scene(idx):
 def onFrameStart(frame):
     p = me.parent()                  # 相対参照: 入れ子/別配置でも scene_state を辿れる
     ss = p.op('scene_state')
-    lvl, hi, lo = _level_and_thresholds(ss)
+    lvl, test = _kick_level()
     armed = ss.fetch('armed', 1)
-    if armed and lvl > hi:
+    fire, nxt = _detector().feed(lvl, td.absTime.seconds, armed,
+                                 test=test, rank_on=ss.fetch('onset_rank', 1))
+    if fire:
         idx = int(ss['scene']) + 1
         ss.par.value0 = idx
         _apply_scene(idx)
-        ss.store('armed', 0)
-    elif (not armed) and lvl < lo:
-        ss.store('armed', 1)         # LO まで戻ったら再武装
+    if nxt != armed:
+        ss.store('armed', nxt)       # 発火で 0、LO まで戻ったら 1（再武装）
     return
 '''
 
