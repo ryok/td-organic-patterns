@@ -555,7 +555,8 @@ README 用の作例クリップを書き出すパイプライン。`hsv1` →
 
 1. [scripts/build_recorder.py](scripts/build_recorder.py) を実行
 2. `op('/project1/rec_out').par.record = True` … 数秒 … `= False`
-3. `reference/demo_loop.mp4` が書き出される
+3. `.toe` と同じフォルダに `demo_loop.mp4` が書き出される（このリポジトリでは
+   `project/demo_loop.mp4`。README 用は `reference/` へ移す）
 
 ### macOS のコーデック事情（ハマりどころ）
 

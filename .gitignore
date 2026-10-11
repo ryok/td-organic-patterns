@@ -14,3 +14,6 @@ __pycache__/
 
 # 著作権のある参照素材（他者作品）は公開しない
 reference/original_reddit_frame.png
+
+# 録画ノード（build_recorder.py）の書き出し先。README 用は reference/ へ移す
+project/*.mp4

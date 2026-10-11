@@ -41,7 +41,8 @@ build_recorder.py
   1. build_organic_patterns.py 実行済み（+ 各拡張は任意）で
   2. Textport にこのファイルを貼り付けて Enter
   3. 録画: op('/project1/rec_out').par.record = True  … 数秒 …  = False
-  4. reference/demo_loop.mp4 が書き出される
+  4. .toe と同じフォルダに demo_loop.mp4 が書き出される（このリポジトリでは
+     project/demo_loop.mp4。README 用は reference/ へ移す）
 """
 
 import td
@@ -62,7 +63,10 @@ PARENT = '/project1'
 REC_RES = (480, 270)   # GIF/軽量動画向けの縮小解像度
 REC_FPS = 24
 REC_CODEC = 'mpeg4'    # macOS 互換。NVIDIA機なら 'h264nvgpu' が軽い
-REC_FILE = '/Users/ryookada/work/td-organic-patterns/reference/demo_loop.mp4'
+# 相対パス = .toe のあるフォルダ（project.folder）基準。完全版 tox にも値がそのまま入るので、
+# 個人のホームのパスを埋め込まない（2026-10-12 に絶対パスから変更）。
+# このリポジトリでは project/ に書き出されるので、README 用は reference/ へ移す。
+REC_FILE = 'demo_loop.mp4'
 
 
 def build_recorder():
