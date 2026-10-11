@@ -105,6 +105,22 @@ def case_nan_ignored():
     return f'NaN/inf→{bad}、履歴{n}件のまま、その後も p90以上=ref'
 
 
+def case_observe_rank():
+    """observe は立ち上がり中 None、その後は生の順位（0〜1、p10/p90 の写しなし）。
+    オンセット検出が順位そのものでしきい値判定するために使う。"""
+    norm = rn.RankNorm(REF)
+    assert norm.observe(0.01, 0.0) is None
+    vals = [0.002 + 0.0001 * (i % 200) for i in range(int(FPS * 20))]
+    t, _ = feed(norm, vals)
+    top = norm.observe(0.0219, t)
+    mid = norm.observe(0.012, t)
+    silent = norm.observe(REF * 0.005, t)
+    assert top > 0.97, top
+    assert abs(mid - 0.5) < 0.05, mid
+    assert silent == 0.0, silent
+    return f'立ち上がり None → 最大付近 {top:.3f} / 中央 {mid:.3f} / 無音 {silent}'
+
+
 def case_fps_independent():
     """30fps と 120fps で流しても履歴の件数は同じ（時間で間引く）。"""
     counts = []
@@ -122,7 +138,7 @@ def case_fps_independent():
 if __name__ == '__main__':
     cases = [case_scale_invariant, case_percentile_mapping, case_silence_floor,
              case_warmup_passthrough, case_window_cap_and_adapt, case_nan_ignored,
-             case_fps_independent]
+             case_observe_rank, case_fps_independent]
     for c in cases:
         print(f'[ok] {c.__name__}: {c()}')
     print(f'all {len(cases)} cases passed')

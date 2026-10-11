@@ -78,8 +78,10 @@ class RankNorm:
         hi = bisect_right(self._sorted, v)
         return (lo + 0.5 * (hi - lo)) / n
 
-    def update(self, v, t):
-        """現在値 v（時刻 t 秒）を受け取り、正規化後の値を返す。"""
+    def observe(self, v, t):
+        """現在値 v（時刻 t 秒）を履歴に積み、履歴の中での順位（0〜1）を返す。
+        無音・NaN/inf は 0.0。履歴が min_samples に満たない立ち上がりは None
+        （呼び出し側で生の値の判定に落とす）。オンセット検出はこれを直接使う。"""
         v = float(v)
         # NaN/inf は 0 にして履歴にも入れない。NaN は大小比較がすべて偽なので、
         # 1つ入ると bisect が壊れ、以後ずっと順位 0.5（=ref/2）を返し続ける
@@ -96,6 +98,14 @@ class RankNorm:
             if self._next_t < t:      # 長く止まっていた後は追いつこうとまとめて積まない
                 self._next_t = t + self.period
         if len(self._sorted) < self.min_samples:
-            return v
-        r = (self.rank(v) - self.p_lo) / (self.p_hi - self.p_lo)
+            return None
+        return self.rank(v)
+
+    def update(self, v, t):
+        """現在値 v（時刻 t 秒）を受け取り、正規化後の値（0〜ref）を返す。
+        立ち上がりは生の値をそのまま返す。"""
+        r = self.observe(v, t)
+        if r is None:
+            return float(v)
+        r = (r - self.p_lo) / (self.p_hi - self.p_lo)
         return min(1.0, max(0.0, r)) * self.ref
